@@ -1,5 +1,7 @@
+import './loadEnv';
 import express from 'express';
 import cors from 'cors';
+import { clerkMiddleware } from '@clerk/express';
 import apiRouter from './routes';
 import { errorHandler } from './middleware/errorHandler';
 
@@ -14,6 +16,10 @@ export function createServer() {
   }));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Attaches the Clerk session to every request. It does not reject anything on
+  // its own — route-level authenticateToken decides what requires a session.
+  app.use(clerkMiddleware());
 
   // Basic request logger
   app.use((req, res, next) => {

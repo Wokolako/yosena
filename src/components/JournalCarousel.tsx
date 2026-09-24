@@ -1,6 +1,8 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { BLOG_POSTS } from '../data/content';
 import { BlogPost, PageView } from '../types';
+import { fetchBlogPosts } from '../lib/api';
 import { ArticleReaderModal } from './ArticleReaderModal';
 import { Clock, Calendar, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -24,8 +26,28 @@ export const JournalCarousel: React.FC<JournalCarouselProps> = ({ onNavigate }) 
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
   const [perView, setPerView] = useState(1);
   const [isPaused, setIsPaused] = useState(false);
+  const [posts, setPosts] = useState<BlogPost[]>([]);
 
-  const total = BLOG_POSTS.length;
+  // The carousel is a home-page accent: if the journal cannot be reached the
+  // section simply renders nothing rather than showing an error mid-page.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await fetchBlogPosts();
+        if (!cancelled) setPosts(data);
+      } catch {
+        if (!cancelled) setPosts([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const total = posts.length;
   // The track stops once the last story is flush right, so the final view is never half empty.
   const maxIndex = Math.max(0, total - perView);
 
@@ -58,6 +80,8 @@ export const JournalCarousel: React.FC<JournalCarouselProps> = ({ onNavigate }) 
 
   const goPrev = () => setActiveIndex((i) => (i <= 0 ? maxIndex : i - 1));
   const goNext = () => setActiveIndex((i) => (i >= maxIndex ? 0 : i + 1));
+
+  if (total === 0) return null;
 
   return (
     <section
@@ -110,7 +134,7 @@ export const JournalCarousel: React.FC<JournalCarouselProps> = ({ onNavigate }) 
             className="flex transition-transform duration-500 ease-out"
             style={{ transform: `translateX(-${activeIndex * (100 / perView)}%)` }}
           >
-            {BLOG_POSTS.map((post, idx) => (
+            {posts.map((post, idx) => (
               <div
                 key={post.id}
                 className="w-full md:w-1/2 shrink-0 px-3"

@@ -1,4 +1,7 @@
+'use client';
+
 import React from 'react';
+import { Show, UserButton } from '@clerk/nextjs';
 import { PageView } from '../types';
 import { ThemeToggle } from './ThemeToggle';
 import { useAuth } from '../context/AuthContext';
@@ -140,7 +143,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               id="member-portal-btn"
               onClick={openVault}
-              title={user ? `${user.companyName} — Member Vault` : 'Sign in to your trade account'}
+              title={user ? `${user.companyName} — Member Vault` : 'Join us — sign in or open a trade account'}
               className="p-2 text-[#57534E] dark:text-[#D5CDC4] hover:text-[#1A1918] dark:hover:text-[#F5F2ED] hover:bg-[#F2ECE4] dark:hover:bg-[#23201D] rounded-full transition-colors relative flex items-center gap-2 cursor-pointer"
             >
               <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-serif font-bold shadow-sm ${
@@ -150,25 +153,33 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}>
                 {initials}
               </div>
-              {!user && (
+              {user && (
                 <span className="hidden xl:inline text-[13px] uppercase tracking-wider font-semibold whitespace-nowrap">
-                  Sign In
+                  My Vault
                 </span>
               )}
             </button>
 
-            {/* Sign Out — only meaningful with a live session */}
-            {user && (
+            {/* Account controls. Clerk owns profile management and sign out;
+                the avatar button above stays as the route into the vault. */}
+            <Show when="signed-out">
               <button
-                id="sign-out-btn"
-                onClick={signOut}
-                title="Sign out"
-                aria-label="Sign out"
-                className="hidden md:flex p-2 text-[#57534E] dark:text-[#D5CDC4] hover:text-[#1A1918] dark:hover:text-[#F5F2ED] hover:bg-[#F2ECE4] dark:hover:bg-[#23201D] rounded-full transition-colors cursor-pointer"
+                id="join-btn"
+                onClick={openVault}
+                className="hidden md:flex px-4 py-2.5 text-xs font-semibold tracking-wider uppercase rounded bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] transition-colors items-center cursor-pointer whitespace-nowrap"
               >
-                <LogOut className="w-5 h-5" />
+                Join Us
               </button>
-            )}
+            </Show>
+
+            <Show when="signed-in">
+              <div className="hidden md:flex items-center pl-1">
+                <UserButton
+                  appearance={{ elements: { avatarBox: 'w-9 h-9' } }}
+                  userProfileProps={{ appearance: { elements: { profileSection: 'font-sans' } } }}
+                />
+              </div>
+            </Show>
 
             {/* Cart Button */}
             <button
@@ -238,7 +249,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               className="text-sm uppercase tracking-wider font-semibold text-[#1A1918] dark:text-[#F5F2ED] flex items-center gap-2 cursor-pointer"
             >
-              <User className="w-4 h-4" /> {user ? 'Member Jeweller Area' : 'Sign In / Register'}
+              <User className="w-4 h-4" /> {user ? 'Member Jeweller Area' : 'Join Us'}
             </button>
             <button
               onClick={() => {

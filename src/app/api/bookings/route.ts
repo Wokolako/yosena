@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, BookingData } from '../../../../backend/data/db';
+import { requireAdmin } from '../../../lib/requireAdmin';
 
+/**
+ * The appointment book: every client's name, company, email, phone and the
+ * inquiry they wrote. Desk-only. Booking itself (POST, below) stays open to
+ * visitors, which is why the gate sits on the handler rather than in proxy.ts
+ * — the middleware matcher cannot tell the two methods apart.
+ */
 export async function GET(req: NextRequest) {
+  const gate = await requireAdmin();
+  if (gate.response) return gate.response;
+
   try {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get('email');
-    let bookings = db.getBookings();
-
-    if (email) {
-      bookings = bookings.filter((b) => b.email.toLowerCase() === email.toLowerCase());
-    }
+    const bookings = email ? await db.getBookingsByEmail(email) : await db.getBookings();
 
     return NextResponse.json({ success: true, count: bookings.length, data: bookings });
   } catch (err: any) {
@@ -46,15 +52,13 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString()
     };
 
-    const bookings = db.getBookings();
-    bookings.unshift(newBooking);
-    db.saveBookings(bookings);
+    const saved = await db.createBooking(newBooking);
 
     return NextResponse.json(
       {
         success: true,
         message: 'Consultation appointment scheduled and confirmed.',
-        data: newBooking
+        data: saved
       },
       { status: 201 }
     );

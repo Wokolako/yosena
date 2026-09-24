@@ -66,7 +66,7 @@ export const quoteController = {
     }
   },
 
-  submitQuoteRequest(req: Request, res: Response): void {
+  async submitQuoteRequest(req: Request, res: Response): Promise<void> {
     try {
       const {
         gemType,
@@ -106,28 +106,24 @@ export const quoteController = {
         createdAt: new Date().toISOString()
       };
 
-      const quotes = db.getQuotes();
-      quotes.unshift(newQuote);
-      db.saveQuotes(quotes);
+      const saved = await db.createQuote(newQuote);
 
       res.status(201).json({
         success: true,
         message: 'Wholesale quote allocation request received. Our trade desk will respond within 4 business hours.',
-        data: newQuote
+        data: saved
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: 'Failed to submit quote request.' });
     }
   },
 
-  getQuoteRequests(req: Request, res: Response): void {
+  async getQuoteRequests(req: Request, res: Response): Promise<void> {
     try {
       const { email } = req.query;
-      let quotes = db.getQuotes();
-
-      if (email) {
-        quotes = quotes.filter((q) => q.contactEmail.toLowerCase() === String(email).toLowerCase());
-      }
+      const quotes = email
+        ? await db.getQuotesByEmail(String(email))
+        : await db.getQuotes();
 
       res.status(200).json({
         success: true,

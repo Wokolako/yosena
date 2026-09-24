@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { db, BookingData } from '../data/db';
 
 export const bookingController = {
-  createBooking(req: Request, res: Response): void {
+  async createBooking(req: Request, res: Response): Promise<void> {
     try {
       const {
         serviceId,
@@ -41,14 +41,12 @@ export const bookingController = {
         createdAt: new Date().toISOString()
       };
 
-      const bookings = db.getBookings();
-      bookings.unshift(newBooking);
-      db.saveBookings(bookings);
+      const saved = await db.createBooking(newBooking);
 
       res.status(201).json({
         success: true,
         message: 'Consultation appointment scheduled and confirmed.',
-        data: newBooking
+        data: saved
       });
     } catch (err: any) {
       res.status(500).json({
@@ -59,14 +57,12 @@ export const bookingController = {
     }
   },
 
-  getBookings(req: Request, res: Response): void {
+  async getBookings(req: Request, res: Response): Promise<void> {
     try {
       const { email, status } = req.query;
-      let bookings = db.getBookings();
-
-      if (email) {
-        bookings = bookings.filter((b) => b.email.toLowerCase() === String(email).toLowerCase());
-      }
+      let bookings = email
+        ? await db.getBookingsByEmail(String(email))
+        : await db.getBookings();
 
       if (status) {
         bookings = bookings.filter((b) => b.status.toLowerCase() === String(status).toLowerCase());
@@ -82,11 +78,10 @@ export const bookingController = {
     }
   },
 
-  getBookingById(req: Request, res: Response): void {
+  async getBookingById(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const bookings = db.getBookings();
-      const booking = bookings.find((b) => b.id === id || b.referenceNumber === id);
+      const booking = await db.getBookingByIdOrReference(id);
 
       if (!booking) {
         res.status(404).json({ success: false, error: 'Booking appointment not found.' });
@@ -99,31 +94,27 @@ export const bookingController = {
     }
   },
 
-  cancelBooking(req: Request, res: Response): void {
+  async cancelBooking(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const bookings = db.getBookings();
-      const index = bookings.findIndex((b) => b.id === id || b.referenceNumber === id);
+      const cancelled = await db.updateBookingStatus(id, 'Cancelled');
 
-      if (index === -1) {
+      if (!cancelled) {
         res.status(404).json({ success: false, error: 'Booking appointment not found.' });
         return;
       }
 
-      bookings[index].status = 'Cancelled';
-      db.saveBookings(bookings);
-
       res.status(200).json({
         success: true,
         message: 'Appointment cancelled successfully.',
-        data: bookings[index]
+        data: cancelled
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: 'Failed to cancel appointment.' });
     }
   },
 
-  getAvailableSlots(req: Request, res: Response): void {
+  async getAvailableSlots(req: Request, res: Response): Promise<void> {
     try {
       const date = String(req.query.date || '2026-09-18');
       const standardSlots = [
@@ -134,10 +125,7 @@ export const bookingController = {
         '05:00 PM BST'
       ];
 
-      const bookings = db.getBookings();
-      const bookedSlots = bookings
-        .filter((b) => b.date === date && b.status !== 'Cancelled')
-        .map((b) => b.time);
+      const bookedSlots = (await db.getBookingsOnDate(date)).map((b) => b.time);
 
       const available = standardSlots.map((slot) => ({
         time: slot,

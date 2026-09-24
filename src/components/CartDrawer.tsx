@@ -1,5 +1,8 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { CartItem } from '../types';
+import { createOrder, cartToOrderItems } from '../lib/api';
 import { 
   X, 
   Trash2, 
@@ -8,6 +11,13 @@ import {
   CheckCircle2, 
   Lock 
 } from 'lucide-react';
+
+/** Courier names as the trade desk records them on an order. */
+const SHIPPING_LABELS: Record<'armored' | 'usps' | 'ferrari', string> = {
+  armored: 'Malca-Amit Armored Vault Transfer',
+  usps: 'USPS Registered Insured Mail',
+  ferrari: 'Ferrari Armored High-Value Courier',
+};
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -32,6 +42,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [couponFeedback, setCouponFeedback] = useState<string>('');
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'checkout' | 'confirmation'>('cart');
   const [orderRef, setOrderRef] = useState<string>('');
+  const [isPlacingOrder, setIsPlacingOrder] = useState<boolean>(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
 
   const [checkoutForm, setCheckoutForm] = useState({
     businessName: '',
@@ -81,11 +93,35 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
   };
 
-  const handleCompleteOrder = (e: React.FormEvent) => {
+  // The order reference shown on the confirmation is the id the trade desk
+  // assigned, so the dossier the client quotes back actually exists on record.
+  const handleCompleteOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    const generatedRef = `INV-${Math.floor(100000 + Math.random() * 900000)}`;
-    setOrderRef(generatedRef);
-    setCheckoutStep('confirmation');
+    if (isPlacingOrder) return;
+
+    setIsPlacingOrder(true);
+    setOrderError(null);
+
+    try {
+      const order = await createOrder({
+        items: cartToOrderItems(cartItems),
+        clientName: checkoutForm.contactName,
+        companyName: checkoutForm.businessName,
+        email: checkoutForm.email,
+        paymentMethod:
+          checkoutForm.paymentPreference === 'wire'
+            ? 'Wire Transfer (Escrow)'
+            : checkoutForm.paymentPreference,
+        shippingService: SHIPPING_LABELS[shippingMethod],
+      });
+
+      setOrderRef(order.id);
+      setCheckoutStep('confirmation');
+    } catch (err: any) {
+      setOrderError(err?.message ?? 'The order could not be registered.');
+    } finally {
+      setIsPlacingOrder(false);
+    }
   };
 
   const handleFinish = () => {
@@ -467,11 +503,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <button
                   type="submit"
                   form="checkout-form"
-                  className="py-3 bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] rounded text-xs sm:text-sm uppercase tracking-wider font-bold cursor-pointer"
+                  disabled={isPlacingOrder}
+                  className="py-3 bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] rounded text-xs sm:text-sm uppercase tracking-wider font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Confirm Allocation
+                  {isPlacingOrder ? 'Registering…' : 'Confirm Allocation'}
                 </button>
               </div>
+            )}
+
+            {orderError && checkoutStep === 'checkout' && (
+              <p role="alert" className="text-xs sm:text-sm font-semibold text-[#A3524A] dark:text-[#E0897F] text-center">
+                {orderError}
+              </p>
             )}
 
             <div className="flex items-center justify-center gap-1.5 text-xs text-[#8C827A] dark:text-[#A69C94] pt-1">

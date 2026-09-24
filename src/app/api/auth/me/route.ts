@@ -1,42 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { db } from '../../../../../backend/data/db';
-import { extractBearerToken, verifyToken } from '../../../../../backend/auth/jwt';
 
-export async function GET(req: NextRequest) {
+/**
+ * Returns the caller's trade profile.
+ *
+ * Clerk owns identity; this joins the authenticated Clerk account to the trade
+ * record that carries member id, tier, credit line and role. There is no login
+ * or register endpoint any more — Clerk handles both, and the trade record is
+ * provisioned here on first sign-in.
+ */
+export async function GET() {
   try {
-    const authHeader = req.headers.get('authorization') || undefined;
-    const token = extractBearerToken(authHeader);
+    const { userId } = await auth();
 
-    if (!token) {
+    if (!userId) {
       return NextResponse.json(
-        { success: false, error: 'Authentication required. Bearer token missing.' },
+        { success: false, error: 'Authentication required.' },
         { status: 401 }
       );
     }
 
-    const payload = verifyToken(token);
-    if (!payload) {
+    const clerkUser = await currentUser();
+
+    if (!clerkUser) {
       return NextResponse.json(
-        { success: false, error: 'Invalid or expired authentication token.' },
-        { status: 403 }
+        { success: false, error: 'Clerk account could not be loaded.' },
+        { status: 401 }
       );
     }
 
-    const users = db.getUsers();
-    const user = users.find((u) => u.id === payload.userId);
+    const email =
+      clerkUser.primaryEmailAddress?.emailAddress ??
+      clerkUser.emailAddresses[0]?.emailAddress ??
+      '';
 
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'User account not found.' },
-        { status: 404 }
-      );
-    }
+    const clientName =
+      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') ||
+      clerkUser.username ||
+      email;
 
-    const { passwordHash: _, ...safeUser } = user;
-    return NextResponse.json({ success: true, user: safeUser });
+    const user = await db.resolveClerkUser({ clerkUserId: userId, email, clientName });
+
+    return NextResponse.json({ success: true, user });
   } catch (err: any) {
     return NextResponse.json(
-      { success: false, error: 'Failed to retrieve profile.' },
+      { success: false, error: 'Failed to load profile.', details: err?.message },
       { status: 500 }
     );
   }

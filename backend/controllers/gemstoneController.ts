@@ -2,9 +2,9 @@ import { Request, Response } from 'express';
 import { db, GemstoneData } from '../data/db';
 
 export const gemstoneController = {
-  getAllGemstones(req: Request, res: Response): void {
+  async getAllGemstones(req: Request, res: Response): Promise<void> {
     try {
-      let stones = db.getGemstones();
+      let stones = await db.getGemstones();
       const { category, shape, minCarat, maxCarat, minPrice, maxPrice, status, search, featured } = req.query;
 
       if (category && category !== 'All') {
@@ -66,11 +66,10 @@ export const gemstoneController = {
     }
   },
 
-  getGemstoneById(req: Request, res: Response): void {
+  async getGemstoneById(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const stones = db.getGemstones();
-      const stone = stones.find((s) => s.id === id);
+      const stone = await db.getGemstoneById(id);
 
       if (!stone) {
         res.status(404).json({
@@ -93,9 +92,9 @@ export const gemstoneController = {
     }
   },
 
-  getFeatured(req: Request, res: Response): void {
+  async getFeatured(req: Request, res: Response): Promise<void> {
     try {
-      const stones = db.getGemstones();
+      const stones = await db.getGemstones();
       const featured = stones.filter((s) => s.featured);
 
       res.status(200).json({
@@ -111,7 +110,7 @@ export const gemstoneController = {
     }
   },
 
-  updateStatus(req: Request, res: Response): void {
+  async updateStatus(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const { status } = req.body;
@@ -124,28 +123,24 @@ export const gemstoneController = {
         return;
       }
 
-      const stones = db.getGemstones();
-      const index = stones.findIndex((s) => s.id === id);
+      const updated = await db.updateGemstoneStatus(id, status);
 
-      if (index === -1) {
+      if (!updated) {
         res.status(404).json({ success: false, error: 'Gemstone not found.' });
         return;
       }
 
-      stones[index].status = status;
-      db.saveGemstones(stones);
-
       res.status(200).json({
         success: true,
         message: `Gemstone ${id} status updated to ${status}.`,
-        data: stones[index]
+        data: updated
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: 'Failed to update gemstone status.' });
     }
   },
 
-  createGemstone(req: Request, res: Response): void {
+  async createGemstone(req: Request, res: Response): Promise<void> {
     try {
       const newStoneData: GemstoneData = req.body;
 
@@ -157,7 +152,6 @@ export const gemstoneController = {
         return;
       }
 
-      const stones = db.getGemstones();
       const stoneId = newStoneData.id || `gem-${Date.now()}`;
       const stone: GemstoneData = {
         ...newStoneData,
@@ -166,13 +160,12 @@ export const gemstoneController = {
         pricePerCarat: Math.round(newStoneData.priceUSD / newStoneData.carat)
       };
 
-      stones.push(stone);
-      db.saveGemstones(stones);
+      const created = await db.createGemstone(stone);
 
       res.status(201).json({
         success: true,
         message: 'Gemstone added to vault inventory.',
-        data: stone
+        data: created
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: 'Failed to create gemstone.' });

@@ -86,8 +86,7 @@ export type PageView =
   | 'blog'
   | 'story'
   | 'vault'
-  | 'signin'
-  | 'signup'
+  | 'join'
   | 'checkout'
   | 'admin';
 

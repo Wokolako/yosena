@@ -4,11 +4,8 @@ import { authenticateToken } from '../auth/authMiddleware';
 
 const router = Router();
 
-// Public auth endpoints
-router.post('/login', authController.login);
-router.post('/register', authController.register);
-
-// Protected auth endpoints
+// Sign-in and sign-up are handled by Clerk, not by this API. What remains is
+// the trade profile that sits alongside the Clerk account.
 router.get('/me', authenticateToken, authController.getProfile);
 router.put('/profile', authenticateToken, authController.updateProfile);
 

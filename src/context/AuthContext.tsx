@@ -1,11 +1,21 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useAuth as useClerkAuth, useUser } from '@clerk/nextjs';
 
-const TOKEN_KEY = 'yosenamora_token';
-
+/**
+ * The member's trade profile.
+ *
+ * Clerk owns identity — credentials, email, name, avatar. It knows nothing
+ * about the trade relationship, so member id, tier, credit line and role are
+ * read from this app's own database via /api/auth/me and exposed here.
+ *
+ * Components carry on calling `useAuth()` as before; what changed underneath is
+ * that the session comes from Clerk rather than a token in localStorage.
+ */
 export interface AuthUser {
   id: string;
+  clerkUserId: string | null;
   email: string;
   clientName: string;
   companyName: string;
@@ -24,143 +34,80 @@ export interface AuthUser {
   };
 }
 
-export interface SignUpFields {
-  clientName: string;
-  companyName: string;
-  email: string;
-  password: string;
-  phone?: string;
-  address?: string;
-}
-
-/**
- * Flat rather than a discriminated union: the project compiles with
- * `strict: false`, and without strictNullChecks TypeScript will not narrow a
- * boolean-literal discriminant, so `error` has to be readable on both outcomes.
- */
-export interface AuthResult {
-  ok: boolean;
-  error?: string;
-}
-
 interface AuthContextType {
+  /** The trade profile, or null when signed out. */
   user: AuthUser | null;
-  token: string | null;
-  /** True while the stored session is being restored on first load. */
+  /** True while Clerk is loading or the trade profile is being fetched. */
   isRestoring: boolean;
-  signIn: (email: string, password: string) => Promise<AuthResult>;
-  signUp: (fields: SignUpFields) => Promise<AuthResult>;
+  /** Set when the profile could not be loaded despite a valid session. */
+  error: string | null;
+  /** Re-reads the profile — call after the desk changes tier or credit. */
+  refresh: () => Promise<void>;
   signOut: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const readStoredToken = (): string | null => {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
-};
-
-const persistToken = (token: string | null) => {
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    // Ignore in restricted environments
-  }
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isRestoring, setIsRestoring] = useState(true);
+  const { isLoaded: isClerkLoaded, isSignedIn, signOut: clerkSignOut } = useClerkAuth();
+  const { user: clerkUser } = useUser();
 
-  // Restore a stored session by validating the token against the API.
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadProfile = useCallback(async () => {
+    setIsLoadingProfile(true);
+    setError(null);
+
+    try {
+      // Clerk's session cookie rides along automatically on a same-origin fetch,
+      // so there is no token to attach.
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+
+      if (res.ok && data?.success && data.user) {
+        setUser(data.user);
+      } else {
+        setUser(null);
+        setError(data?.error ?? 'Your trade profile could not be loaded.');
+      }
+    } catch {
+      setUser(null);
+      setError('Could not reach the trade desk. Check your connection.');
+    } finally {
+      setIsLoadingProfile(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const stored = readStoredToken();
-    if (!stored) {
-      setIsRestoring(false);
+    if (!isClerkLoaded) return;
+
+    if (!isSignedIn) {
+      setUser(null);
+      setError(null);
       return;
     }
 
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${stored}` },
-        });
-        const data = await res.json();
-
-        if (cancelled) return;
-
-        if (res.ok && data?.success && data.user) {
-          setUser(data.user);
-          setToken(stored);
-        } else {
-          // Expired or rejected — clear it rather than leaving a dead token around.
-          persistToken(null);
-        }
-      } catch {
-        if (!cancelled) persistToken(null);
-      } finally {
-        if (!cancelled) setIsRestoring(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const authenticate = useCallback(
-    async (
-      endpoint: string,
-      payload: SignUpFields | { email: string; password: string }
-    ): Promise<AuthResult> => {
-      try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-
-        if (!res.ok || !data?.success) {
-          return { ok: false, error: data?.error ?? 'Something went wrong. Please try again.' };
-        }
-
-        setUser(data.user);
-        setToken(data.token);
-        persistToken(data.token);
-        return { ok: true };
-      } catch {
-        return { ok: false, error: 'Could not reach the trade desk. Check your connection.' };
-      }
-    },
-    []
-  );
-
-  const signIn = useCallback(
-    (email: string, password: string) => authenticate('/api/auth/login', { email, password }),
-    [authenticate]
-  );
-
-  const signUp = useCallback(
-    (fields: SignUpFields) => authenticate('/api/auth/register', fields),
-    [authenticate]
-  );
+    void loadProfile();
+    // clerkUser.id is in the deps so switching account refetches the profile.
+  }, [isClerkLoaded, isSignedIn, clerkUser?.id, loadProfile]);
 
   const signOut = useCallback(() => {
     setUser(null);
-    setToken(null);
-    persistToken(null);
-  }, []);
+    void clerkSignOut();
+  }, [clerkSignOut]);
 
   return (
-    <AuthContext.Provider value={{ user, token, isRestoring, signIn, signUp, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isRestoring: !isClerkLoaded || isLoadingProfile,
+        error,
+        refresh: loadProfile,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

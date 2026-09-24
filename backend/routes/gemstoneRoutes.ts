@@ -10,7 +10,7 @@ router.get('/featured', gemstoneController.getFeatured);
 router.get('/:id', gemstoneController.getGemstoneById);
 
 // Protected inventory modification endpoints
-router.patch('/:id/status', authenticateToken, requireRole(['admin', 'trade_partner']), gemstoneController.updateStatus);
+router.patch('/:id/status', authenticateToken, requireRole(['admin']), gemstoneController.updateStatus);
 router.post('/', authenticateToken, requireRole(['admin']), gemstoneController.createGemstone);
 
 export default router;

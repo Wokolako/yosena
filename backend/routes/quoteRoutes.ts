@@ -9,6 +9,6 @@ router.post('/calculate', quoteController.calculateQuote);
 router.post('/submit', quoteController.submitQuoteRequest);
 
 // Protected trade desk review
-router.get('/', authenticateToken, requireRole(['admin', 'trade_partner']), quoteController.getQuoteRequests);
+router.get('/', authenticateToken, requireRole(['admin']), quoteController.getQuoteRequests);
 
 export default router;

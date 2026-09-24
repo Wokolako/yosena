@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { GEMSTONES_CATALOG } from '../data/gemstones';
-import { CONSULTATION_SERVICES } from '../data/content';
-import { Gemstone, PageView } from '../types';
+import { Gemstone, PageView, BookingAppointment } from '../types';
+import { fetchGemstones, fetchBookings, updateGemstoneStatus, adminFetchGemstones } from '../lib/api';
+import { GemstoneManager } from './admin/GemstoneManager';
+import { ContentManager } from './admin/ContentManager';
 import {
   ShieldCheck,
   MessageSquare,
@@ -37,53 +38,63 @@ interface AdminDashboardProps {
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate, onSelectStone }) => {
-  const [activeTab, setActiveTab] = useState<'chat-logs' | 'inventory' | 'appointments' | 'analytics'>('chat-logs');
+  const [activeTab, setActiveTab] = useState<
+    'chat-logs' | 'inventory' | 'manage' | 'content' | 'appointments' | 'analytics'
+  >('chat-logs');
   const [chatLogs, setChatLogs] = useState<ChatLogEntry[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [handoffOnly, setHandoffOnly] = useState<boolean>(false);
-  const [gemstones, setGemstones] = useState<Gemstone[]>(GEMSTONES_CATALOG);
+  const [gemstones, setGemstones] = useState<Gemstone[]>([]);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
 
-  // Mock initial appointments data
-  const [appointments, setAppointments] = useState([
-    {
-      id: 'apt-1001',
-      referenceNumber: 'BK-892401',
-      serviceTitle: 'In-Person Vault Viewing (London Suite)',
-      clientName: 'Arthur Sterling',
-      companyName: 'Sterling Master Ateliers',
-      email: 'a.sterling@sterlingjewels.co.uk',
-      phone: '+44 20 7946 0912',
-      date: '2026-09-24',
-      time: '11:30 AM BST',
-      status: 'Confirmed',
-    },
-    {
-      id: 'apt-1002',
-      referenceNumber: 'BK-552194',
-      serviceTitle: 'Bespoke Diamond Solitaire Consultation',
-      clientName: 'Elena Rostova',
-      companyName: 'Rostova Fine Jewelry Geneva',
-      email: 'elena@rostovageneve.ch',
-      phone: '+41 22 819 9000',
-      date: '2026-09-25',
-      time: '02:00 PM BST',
-      status: 'Confirmed',
-    },
-  ]);
+  const [appointments, setAppointments] = useState<BookingAppointment[]>([]);
+  const [logsError, setLogsError] = useState<string | null>(null);
+
+  // Inventory and the appointment book are both desk-wide views, loaded once
+  // when the dashboard mounts. Chat logs poll separately below.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [stones, bookings] = await Promise.all([fetchGemstones(), fetchBookings()]);
+        if (!cancelled) {
+          setGemstones(stones);
+          setAppointments(bookings);
+          setInventoryError(null);
+        }
+      } catch (err: any) {
+        if (!cancelled) setInventoryError(err?.message ?? 'Could not load desk data.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchLogs = async () => {
     setIsLoadingLogs(true);
     try {
       const res = await fetch('/api/chat');
+
       if (res.ok) {
         const data = await res.json();
         if (data?.logs && Array.isArray(data.logs)) {
           setChatLogs(data.logs);
         }
+        setLogsError(null);
+      } else {
+        // The transcript feed is desk-only now, so a refused poll means the
+        // session lapsed. Saying so beats an empty list that reads as "no one
+        // has asked us anything".
+        const data = await res.json().catch(() => null);
+        setLogsError(data?.error ?? 'Could not load the concierge transcripts.');
       }
     } catch (e) {
       console.error('Failed to load chat logs:', e);
+      setLogsError('Could not reach the concierge log.');
     } finally {
       setIsLoadingLogs(false);
     }
@@ -106,10 +117,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate, onSe
     return matchesSearch && matchesHandoff;
   });
 
-  const handleStatusChange = (stoneId: string, newStatus: 'In Vault' | 'On Memo' | 'Reserved') => {
+  // Applied optimistically so the dropdown responds at once, then rolled back
+  // if the desk rejects the move (an expired session, or a non-staff account).
+  const reloadInventory = async () => {
+    try {
+      setGemstones(await adminFetchGemstones());
+      setInventoryError(null);
+    } catch (err: any) {
+      setInventoryError(err?.message ?? 'Could not reload inventory.');
+    }
+  };
+
+  const handleStatusChange = async (
+    stoneId: string,
+    newStatus: 'In Vault' | 'On Memo' | 'Reserved'
+  ) => {
+    const previous = gemstones;
     setGemstones((prev) =>
       prev.map((g) => (g.id === stoneId ? { ...g, status: newStatus } : g))
     );
+    setInventoryError(null);
+
+    try {
+      await updateGemstoneStatus(stoneId, newStatus);
+    } catch (err: any) {
+      setGemstones(previous);
+      setInventoryError(err?.message ?? 'Could not update that stone.');
+    }
   };
 
   return (
@@ -227,6 +261,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate, onSe
             Vault Inventory ({gemstones.length})
           </button>
           <button
+            onClick={() => setActiveTab('manage')}
+            className={`pb-3.5 transition-colors border-b-2 cursor-pointer ${
+              activeTab === 'manage'
+                ? 'border-[#1A1918] dark:border-[#C5A880] text-[#1A1918] dark:text-[#F5F2ED]'
+                : 'border-transparent text-[#8C827A] dark:text-[#A69C94] hover:text-[#1A1918] dark:hover:text-[#F5F2ED]'
+            }`}
+          >
+            Manage Stones
+          </button>
+          <button
+            onClick={() => setActiveTab('content')}
+            className={`pb-3.5 transition-colors border-b-2 cursor-pointer ${
+              activeTab === 'content'
+                ? 'border-[#1A1918] dark:border-[#C5A880] text-[#1A1918] dark:text-[#F5F2ED]'
+                : 'border-transparent text-[#8C827A] dark:text-[#A69C94] hover:text-[#1A1918] dark:hover:text-[#F5F2ED]'
+            }`}
+          >
+            Site Content
+          </button>
+          <button
             onClick={() => setActiveTab('appointments')}
             className={`pb-3.5 transition-colors border-b-2 cursor-pointer ${
               activeTab === 'appointments'
@@ -266,7 +320,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate, onSe
               </div>
             </div>
 
-            {isLoadingLogs && chatLogs.length === 0 ? (
+            {logsError ? (
+              <div
+                role="alert"
+                className="py-12 text-center text-xs sm:text-sm font-semibold text-[#A3524A] dark:text-[#E0897F] border border-dashed border-[#E9C9C4] dark:border-[#4A2622] rounded-lg p-6"
+              >
+                {logsError}
+              </div>
+            ) : isLoadingLogs && chatLogs.length === 0 ? (
               <div className="py-12 text-center text-xs text-[#78716C] dark:text-[#A69C94] animate-pulse">
                 Loading live chat logs from vault desk server…
               </div>
@@ -326,12 +387,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate, onSe
         {/* Tab 2: Vault Inventory Ledger */}
         {activeTab === 'inventory' && (
           <div className="bg-[#FFFFFF] dark:bg-[#181614] rounded-xl border border-[#E8E1D9] dark:border-[#262320] shadow-sm p-6 space-y-6">
+            {inventoryError && (
+              <p role="alert" className="text-xs sm:text-sm font-semibold text-[#A3524A] dark:text-[#E0897F]">
+                {inventoryError}
+              </p>
+            )}
+
             <div className="flex items-center justify-between">
               <h3 className="font-serif text-xl text-[#1A1918] dark:text-[#F5F2ED]">
                 Vault Gemstone Inventory &amp; Status Controls
               </h3>
               <span className="text-xs uppercase font-bold text-[#8C827A] dark:text-[#A69C94]">
-                8 Stones Managed
+                {gemstones.length} Stones Managed
               </span>
             </div>
 
@@ -403,6 +470,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate, onSe
         )}
 
         {/* Tab 3: Appointments */}
+        {activeTab === 'manage' && (
+          <div className="bg-[#FFFFFF] dark:bg-[#181614] rounded-xl border border-[#E8E1D9] dark:border-[#262320] shadow-sm p-6">
+            <GemstoneManager gemstones={gemstones} onChanged={reloadInventory} />
+          </div>
+        )}
+
+        {activeTab === 'content' && (
+          <div className="bg-[#FFFFFF] dark:bg-[#181614] rounded-xl border border-[#E8E1D9] dark:border-[#262320] shadow-sm p-6">
+            <ContentManager />
+          </div>
+        )}
+
         {activeTab === 'appointments' && (
           <div className="bg-[#FFFFFF] dark:bg-[#181614] rounded-xl border border-[#E8E1D9] dark:border-[#262320] shadow-sm p-6 space-y-6">
             <div className="flex items-center justify-between">

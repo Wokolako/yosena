@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { WHATSAPP_URL } from '../lib/siteKnowledge';
+import { fetchGemstones } from '../lib/api';
+import { WHATSAPP_URL } from '../lib/contact';
 import { MessageCircle, X, Send, Loader2, RotateCcw } from 'lucide-react';
 import { Gemstone } from '../types';
-import { GEMSTONES_CATALOG } from '../data/gemstones';
 
 interface ChatWidgetProps {
   onSelectStone?: (stone: Gemstone) => void;
@@ -26,7 +26,11 @@ const SUGGESTIONS = [
   'How do memo terms work?',
 ];
 
-function renderFormattedText(text: string, onSelectStone?: (stone: Gemstone) => void) {
+function renderFormattedText(
+  text: string,
+  stones: Gemstone[],
+  onSelectStone?: (stone: Gemstone) => void
+) {
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
   const parts: (string | React.ReactNode)[] = [];
   let lastIndex = 0;
@@ -43,7 +47,7 @@ function renderFormattedText(text: string, onSelectStone?: (stone: Gemstone) => 
 
     if (url.startsWith('#stone=') || url.startsWith('#gemstone=')) {
       const stoneId = url.split('=')[1];
-      const stone = GEMSTONES_CATALOG.find((s) => s.id === stoneId);
+      const stone = stones.find((s) => s.id === stoneId);
 
       parts.push(
         <button
@@ -120,6 +124,26 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onSelectStone }) => {
   });
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [stones, setStones] = useState<Gemstone[]>([]);
+
+  // Backs the inline #stone= links the assistant emits. A miss only costs the
+  // in-page modal — the hash still navigates — so a failure is swallowed.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await fetchGemstones();
+        if (!cancelled) setStones(data);
+      } catch {
+        if (!cancelled) setStones([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -278,7 +302,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onSelectStone }) => {
                           : 'bg-[#FFFFFF] dark:bg-[#181614] border border-[#E8E1D9] dark:border-[#262320] text-[#44403C] dark:text-[#D5CDC4] rounded-bl-sm'
                     }`}
                   >
-                    {renderFormattedText(msg.text, onSelectStone)}
+                    {renderFormattedText(msg.text, stones, onSelectStone)}
                   </div>
                   {msg.role === 'model' && msg.handoff && <WhatsAppHandoff />}
                 </div>

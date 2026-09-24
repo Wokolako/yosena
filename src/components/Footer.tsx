@@ -1,6 +1,7 @@
 import React from 'react';
 import { PageView, PolicyType } from '../types';
 import { ThemeToggle } from './ThemeToggle';
+import { useAuth } from '../context/AuthContext';
 import { 
   Mail, 
   Instagram, 
@@ -16,6 +17,11 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenPolicy }) => {
+  // The admin view has always been gated where it renders; this only stops the
+  // footer advertising a door the visitor cannot open.
+  const { user } = useAuth();
+  const isAdmin = user?.accountRole === 'admin';
+
   return (
     <footer className="bg-[#FAF8F5] dark:bg-[#070706] text-[#1A1918] dark:text-[#FAF8F5] border-t border-[#E8E1D9] dark:border-[#1F1E1C] pt-16 pb-12 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -117,14 +123,16 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenPolicy }) => {
                   Jeweller Member Portal
                 </button>
               </li>
-              <li>
-                <button
-                  onClick={() => onNavigate('admin')}
-                  className="hover:text-[#1A1918] dark:hover:text-[#FAF8F5] transition-colors cursor-pointer font-bold text-[#8C6D44] dark:text-[#C5A880]"
-                >
-                  Trade Desk Admin Center
-                </button>
-              </li>
+              {isAdmin && (
+                <li>
+                  <button
+                    onClick={() => onNavigate('admin')}
+                    className="hover:text-[#1A1918] dark:hover:text-[#FAF8F5] transition-colors cursor-pointer font-bold text-[#8C6D44] dark:text-[#C5A880]"
+                  >
+                    Trade Desk Admin Center
+                  </button>
+                </li>
+              )}
             </ul>
           </div>
 

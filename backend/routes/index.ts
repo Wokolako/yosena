@@ -5,6 +5,7 @@ import bookingRoutes from './bookingRoutes';
 import memoRoutes from './memoRoutes';
 import quoteRoutes from './quoteRoutes';
 import orderRoutes from './orderRoutes';
+import contentRoutes from './contentRoutes';
 
 const apiRouter = Router();
 
@@ -25,5 +26,6 @@ apiRouter.use('/bookings', bookingRoutes);
 apiRouter.use('/memos', memoRoutes);
 apiRouter.use('/quotes', quoteRoutes);
 apiRouter.use('/orders', orderRoutes);
+apiRouter.use('/', contentRoutes);
 
 export default apiRouter;

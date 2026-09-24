@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, QuoteData } from '../../../../backend/data/db';
+import { requireAdmin } from '../../../lib/requireAdmin';
 
 const BASE_PRICE_PER_CARAT: Record<string, number> = {
   Diamond: 12500,
@@ -19,15 +20,19 @@ const SHAPE_MULTIPLIERS: Record<string, number> = {
   'Asscher': 1.20
 };
 
+/**
+ * The wholesale pipeline: target budgets, volumes and jeweller contact
+ * addresses. Desk-only, for the same reason as the appointment book. Quote
+ * submission and the price calculator (POST, below) remain public.
+ */
 export async function GET(req: NextRequest) {
+  const gate = await requireAdmin();
+  if (gate.response) return gate.response;
+
   try {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get('email');
-    let quotes = db.getQuotes();
-
-    if (email) {
-      quotes = quotes.filter((q) => q.contactEmail.toLowerCase() === email.toLowerCase());
-    }
+    const quotes = email ? await db.getQuotesByEmail(email) : await db.getQuotes();
 
     return NextResponse.json({ success: true, count: quotes.length, data: quotes });
   } catch (err: any) {
@@ -117,15 +122,13 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString()
     };
 
-    const quotes = db.getQuotes();
-    quotes.unshift(newQuote);
-    db.saveQuotes(quotes);
+    const saved = await db.createQuote(newQuote);
 
     return NextResponse.json(
       {
         success: true,
         message: 'Wholesale quote allocation request received. Our trade desk will respond within 4 business hours.',
-        data: newQuote
+        data: saved
       },
       { status: 201 }
     );

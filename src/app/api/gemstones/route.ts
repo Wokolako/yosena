@@ -4,7 +4,7 @@ import { db } from '../../../../backend/data/db';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    let stones = db.getGemstones();
+    let stones = await db.getGemstones();
 
     const category = searchParams.get('category');
     const shape = searchParams.get('shape');

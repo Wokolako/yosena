@@ -3,14 +3,11 @@ import { db, MemoData } from '../data/db';
 import { AuthenticatedRequest } from '../auth/authMiddleware';
 
 export const memoController = {
-  getMemberMemos(req: AuthenticatedRequest, res: Response): void {
+  async getMemberMemos(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const memos = db.getMemos();
-      // If user is authenticated, filter by memberId or userId unless admin
+      // Scoped to the caller unless they are an admin.
       if (req.user && req.user.accountRole !== 'admin') {
-        const userMemos = memos.filter(
-          (m) => m.userId === req.user?.userId || m.memberId === req.user?.memberId
-        );
+        const userMemos = await db.getMemosForUser(req.user.id, req.user.memberId);
         res.status(200).json({
           success: true,
           count: userMemos.length,
@@ -18,6 +15,8 @@ export const memoController = {
         });
         return;
       }
+
+      const memos = await db.getMemos();
 
       res.status(200).json({
         success: true,
@@ -29,8 +28,15 @@ export const memoController = {
     }
   },
 
-  requestMemo(req: AuthenticatedRequest, res: Response): void {
+  async requestMemo(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
+      // The route is behind authenticateToken, so this is a guard rather than a
+      // fallback: a consignment must never be booked against a guessed account.
+      if (!req.user) {
+        res.status(401).json({ success: false, error: 'Unauthorized.' });
+        return;
+      }
+
       const { stoneId, notes } = req.body;
 
       if (!stoneId) {
@@ -41,8 +47,7 @@ export const memoController = {
         return;
       }
 
-      const stones = db.getGemstones();
-      const stone = stones.find((s) => s.id === stoneId);
+      const stone = await db.getGemstoneById(stoneId);
 
       if (!stone) {
         res.status(404).json({ success: false, error: 'Gemstone not found in vault.' });
@@ -62,9 +67,9 @@ export const memoController = {
 
       const newMemo: MemoData = {
         id: memoId,
-        userId: req.user?.userId || 'usr-atelier-01',
-        memberId: req.user?.memberId || 'YM-ATELIER-7741',
-        companyName: req.user?.companyName || 'Atelier Sterling & Co.',
+        userId: req.user.id,
+        memberId: req.user.memberId,
+        companyName: req.user.companyName,
         stoneId: stone.id,
         stoneName: stone.name,
         dateDispatched: new Date().toISOString().split('T')[0],
@@ -77,26 +82,20 @@ export const memoController = {
         createdAt: new Date().toISOString()
       };
 
-      // Update stone status
-      stone.status = 'On Memo';
-      db.saveGemstones(stones);
-
-      // Save memo
-      const memos = db.getMemos();
-      memos.unshift(newMemo);
-      db.saveMemos(memos);
+      // Records the memo and flips the stone to 'On Memo' in one transaction.
+      const saved = await db.createMemo(newMemo);
 
       res.status(201).json({
         success: true,
         message: 'Memo consignment request confirmed. Armored logistics dispatched.',
-        data: newMemo
+        data: saved
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: 'Failed to process memo request.' });
     }
   },
 
-  updateMemoStatus(req: AuthenticatedRequest, res: Response): void {
+  async updateMemoStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const { status, notes } = req.body;
@@ -106,33 +105,23 @@ export const memoController = {
         return;
       }
 
-      const memos = db.getMemos();
-      const index = memos.findIndex((m) => m.id === id);
+      // A returned memo releases the stone back to the vault in the same write.
+      const updated = await db.updateMemoStatus(
+        id,
+        status,
+        notes,
+        status === 'Returned to Vault'
+      );
 
-      if (index === -1) {
+      if (!updated) {
         res.status(404).json({ success: false, error: 'Memo not found.' });
         return;
       }
 
-      memos[index].status = status;
-      if (notes) memos[index].notes = notes;
-
-      // If memo settled or returned, release stone
-      if (status === 'Returned to Vault') {
-        const stones = db.getGemstones();
-        const stone = stones.find((s) => s.id === memos[index].stoneId);
-        if (stone) {
-          stone.status = 'In Vault';
-          db.saveGemstones(stones);
-        }
-      }
-
-      db.saveMemos(memos);
-
       res.status(200).json({
         success: true,
         message: `Memo ${id} updated to '${status}'.`,
-        data: memos[index]
+        data: updated
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: 'Failed to update memo status.' });

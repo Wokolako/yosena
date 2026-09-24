@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import { GemCategory } from '../types';
+import { calculateQuote, submitQuote, QuoteCalculation } from '../lib/api';
 import { Calculator, Check, ArrowRight, Shield } from 'lucide-react';
 
 export const WholesaleQuoteCalculator: React.FC = () => {
@@ -10,27 +13,78 @@ export const WholesaleQuoteCalculator: React.FC = () => {
   const [quantity, setQuantity] = useState<number>(1);
   const [originPreference, setOriginPreference] = useState<string>('Ethical Certified Co-op');
   const [submitted, setSubmitted] = useState<boolean>(false);
+  const [contactEmail, setContactEmail] = useState<string>('');
+  const [jewellerBusiness, setJewellerBusiness] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [quote, setQuote] = useState<QuoteCalculation | null>(null);
+  const [isPricing, setIsPricing] = useState<boolean>(true);
 
-  // Dynamic estimate calculation based on gemstone parameters
-  const baseRatePerCarat: Record<GemCategory, number> = {
-    Diamond: 42000,
-    Sapphire: 12000,
-    Emerald: 24000,
-    Ruby: 65000,
-    Spinel: 14000,
-    Tourmaline: 38000,
-  };
+  // Pricing is a server concern: the rate card and volume breaks stay on the
+  // trade desk rather than being shipped to every visitor's browser.
+  // Debounced because the carat and quantity inputs fire on every keystroke.
+  useEffect(() => {
+    let cancelled = false;
+    setIsPricing(true);
 
-  const clarityMultiplier = 
-    clarityTier === 'Investment Grade (FL/VVS)' ? 1.45 :
-    clarityTier === 'Commercial Fine (VS)' ? 1.0 : 0.72;
+    const timer = window.setTimeout(() => {
+      (async () => {
+        try {
+          const result = await calculateQuote({
+            gemType,
+            shape,
+            caratMin: caratSize,
+            caratMax: caratSize,
+            quantity,
+            certification: clarityTier,
+          });
+          if (!cancelled) {
+            setQuote(result);
+            setSubmitError(null);
+          }
+        } catch (err: any) {
+          if (!cancelled) setSubmitError(err?.message ?? 'Could not price this configuration.');
+        } finally {
+          if (!cancelled) setIsPricing(false);
+        }
+      })();
+    }, 300);
 
-  const estimatedPerCarat = Math.round(baseRatePerCarat[gemType] * clarityMultiplier * (caratSize > 5 ? 1.6 : 1.0));
-  const estimatedTotal = Math.round(estimatedPerCarat * caratSize * quantity);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [gemType, shape, caratSize, quantity, clarityTier]);
 
-  const handleQuoteSubmit = (e: React.FormEvent) => {
+  const estimatedPerCarat = quote?.estimatedUnitPriceUSD ?? 0;
+  const estimatedTotal = quote?.estimatedTotalUSD ?? 0;
+
+  const handleQuoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      await submitQuote({
+        gemType,
+        shape,
+        caratMin: caratSize,
+        caratMax: caratSize,
+        targetBudget: estimatedTotal,
+        quantity,
+        certificationPreference: clarityTier,
+        jewellerBusiness,
+        contactEmail,
+        notes: `Origin preference: ${originPreference}`,
+      });
+      setSubmitted(true);
+    } catch (err: any) {
+      setSubmitError(err?.message ?? 'The allocation request could not be registered.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -198,7 +252,9 @@ export const WholesaleQuoteCalculator: React.FC = () => {
               </div>
               <div className="flex justify-between py-1.5 border-b border-[#262523]">
                 <span className="text-[#A8A29E]">Est. Rate per Carat:</span>
-                <span className="font-bold text-[#C5A880]">${estimatedPerCarat.toLocaleString()} / ct</span>
+                <span className="font-bold text-[#C5A880]">
+                  {isPricing ? 'Pricing…' : `$${estimatedPerCarat.toLocaleString()} / ct`}
+                </span>
               </div>
             </div>
 
@@ -208,7 +264,7 @@ export const WholesaleQuoteCalculator: React.FC = () => {
                 Estimated Trade Valuation (Gross Ex-VAT)
               </span>
               <div className="font-serif text-3xl sm:text-4xl text-[#FAF8F5] font-normal">
-                ${estimatedTotal.toLocaleString()} <span className="text-sm font-sans text-[#C5A880] font-bold">USD</span>
+                {isPricing ? '—' : `$${estimatedTotal.toLocaleString()}`} <span className="text-sm font-sans text-[#C5A880] font-bold">USD</span>
               </div>
               <p className="text-xs text-[#999188] pt-1">
                 Subject to final GIA/Gübelin weight certificates and 14-day approval memo review.
@@ -227,16 +283,34 @@ export const WholesaleQuoteCalculator: React.FC = () => {
             ) : (
               <form onSubmit={handleQuoteSubmit} className="space-y-3">
                 <input
+                  type="text"
+                  required
+                  value={jewellerBusiness}
+                  onChange={(e) => setJewellerBusiness(e.target.value)}
+                  placeholder="Your atelier or trade business name..."
+                  className="w-full bg-[#242321] border border-[#3E3B38] rounded px-4 py-3 text-xs sm:text-sm text-[#FAF8F5] placeholder-[#8C827A] focus:outline-none focus:border-[#C5A880]"
+                />
+                <input
                   type="email"
                   required
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
                   placeholder="Enter your jeweller atelier email..."
                   className="w-full bg-[#242321] border border-[#3E3B38] rounded px-4 py-3 text-xs sm:text-sm text-[#FAF8F5] placeholder-[#8C827A] focus:outline-none focus:border-[#C5A880]"
                 />
+
+                {submitError && (
+                  <p role="alert" className="text-xs text-[#E0897F] font-semibold">
+                    {submitError}
+                  </p>
+                )}
+
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-[#FAF8F5] text-[#141413] hover:bg-[#E2DDD6] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                  disabled={isSubmitting}
+                  className="w-full py-3.5 bg-[#FAF8F5] text-[#141413] hover:bg-[#E2DDD6] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <span>Request Formal Memo Dossier</span>
+                  <span>{isSubmitting ? 'Registering…' : 'Request Formal Memo Dossier'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { buildSiteKnowledge, SYSTEM_PROMPT } from '../../../lib/siteKnowledge';
-import fs from 'fs';
-import path from 'path';
+import { db } from '../../../../backend/data/db';
+import { requireAdmin } from '../../../lib/requireAdmin';
 
 // The concierge reads live site data at request time, so never cache this route.
 export const dynamic = 'force-dynamic';
@@ -19,50 +19,37 @@ interface IncomingMessage {
   text: string;
 }
 
-interface ChatLogEntry {
-  id: string;
-  timestamp: string;
-  userMessage: string;
-  botReply: string;
-  handoff: boolean;
-}
-
-let memoryLogs: ChatLogEntry[] = [];
-
-function logChatInteraction(userMessage: string, botReply: string, handoff: boolean) {
-  const entry: ChatLogEntry = {
-    id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-    timestamp: new Date().toISOString(),
-    userMessage,
-    botReply,
-    handoff,
-  };
-
-  memoryLogs.unshift(entry);
-  if (memoryLogs.length > 200) memoryLogs = memoryLogs.slice(0, 200);
-
+/**
+ * Transcripts go to the chat_logs table, so the admin dashboard still shows
+ * them after a restart. A logging failure must never fail the reply the
+ * visitor is waiting on, so it is caught and reported rather than thrown.
+ */
+async function logChatInteraction(userMessage: string, botReply: string, handoff: boolean) {
   try {
-    const logsDir = path.join(process.cwd(), 'backend', 'data');
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-    const filePath = path.join(logsDir, 'chat_logs.json');
-    let existing: ChatLogEntry[] = [];
-    if (fs.existsSync(filePath)) {
-      try {
-        existing = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      } catch (e) { }
-    }
-    existing.unshift(entry);
-    if (existing.length > 500) existing = existing.slice(0, 500);
-    fs.writeFileSync(filePath, JSON.stringify(existing, null, 2), 'utf-8');
+    await db.createChatLog({ userMessage, botReply, handoff });
   } catch (e) {
     console.error('[concierge log error]', e);
   }
 }
 
+/**
+ * Full visitor transcripts, which routinely carry names and contact details
+ * people typed into the concierge. Desk-only. The concierge itself (POST,
+ * below) is public and unauthenticated, as it must be.
+ */
 export async function GET() {
-  return NextResponse.json({ success: true, count: memoryLogs.length, logs: memoryLogs });
+  const gate = await requireAdmin();
+  if (gate.response) return gate.response;
+
+  try {
+    const logs = await db.getChatLogs();
+    return NextResponse.json({ success: true, count: logs.length, logs });
+  } catch {
+    return NextResponse.json(
+      { success: false, error: 'Failed to retrieve chat logs.' },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -106,6 +93,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const siteKnowledge = await buildSiteKnowledge();
 
     const response = await withRetry(() =>
       ai.models.generateContent({
@@ -124,7 +112,7 @@ export async function POST(req: NextRequest) {
     if (!reply) {
       // Model returned nothing usable (a safety stop, or an empty candidate).
       const fallbackReply = 'I am not able to answer that one from our listings. Our trade desk can help you directly on WhatsApp.';
-      logChatInteraction(lastUserMsg, fallbackReply, true);
+      await logChatInteraction(lastUserMsg, fallbackReply, true);
       return NextResponse.json({
         success: true,
         reply: fallbackReply,
@@ -133,7 +121,7 @@ export async function POST(req: NextRequest) {
     }
 
     const handoff = looksLikeHandoff(reply);
-    logChatInteraction(lastUserMsg, reply, handoff);
+    await logChatInteraction(lastUserMsg, reply, handoff);
 
     return NextResponse.json({ success: true, reply, handoff });
   } catch (err) {

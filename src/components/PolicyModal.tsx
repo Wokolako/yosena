@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
-import { POLICY_CONTENTS } from '../data/content';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import { PolicyType } from '../types';
+import { fetchPolicy, PolicyDocument } from '../lib/api';
 import { X, FileText, Mail } from 'lucide-react';
 
 interface PolicyModalProps {
@@ -9,6 +11,40 @@ interface PolicyModalProps {
 }
 
 export const PolicyModal: React.FC<PolicyModalProps> = ({ policyType, onClose }) => {
+  const [policy, setPolicy] = useState<PolicyDocument | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Policies are long legal documents read on demand, so each is fetched when
+  // its modal opens rather than shipped with the bundle.
+  useEffect(() => {
+    if (!policyType) {
+      setPolicy(null);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const doc = await fetchPolicy(policyType);
+        if (!cancelled) {
+          setPolicy(doc);
+          setError(null);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setPolicy(null);
+          setError(err?.message ?? 'This document could not be retrieved.');
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [policyType]);
+
   // Close on Escape and lock background scroll while the policy is open.
   useEffect(() => {
     if (!policyType) return;
@@ -26,18 +62,17 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ policyType, onClose })
 
   if (!policyType) return null;
 
-  const policy = POLICY_CONTENTS[policyType] || {
-    title: 'Policy Document',
-    subtitle: 'Legal & Regulatory Compliance',
-    sections: []
-  };
+  // Header and chrome render immediately; the body fills in when the fetch lands.
+  const title = policy?.title ?? 'Policy Document';
+  const subtitle = policy?.subtitle ?? 'Legal & Regulatory Compliance';
+  const sections = policy?.sections ?? [];
 
   return (
     <div
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={policy.title}
+      aria-label={title}
       className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-in fade-in"
     >
       <div 
@@ -64,15 +99,24 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ policyType, onClose })
         <div className="overflow-y-auto p-6 sm:p-8 space-y-6">
           <div className="border-b border-[#E8E1D9] dark:border-[#262320] pb-4">
             <h2 className="font-serif text-2xl sm:text-3xl text-[#1A1918] dark:text-[#F5F2ED]">
-              {policy.title}
+              {title}
             </h2>
             <p className="text-xs sm:text-sm text-[#78716C] dark:text-[#A69C94] mt-1 font-light">
-              {policy.subtitle}
+              {subtitle}
             </p>
           </div>
 
           <div className="space-y-6 text-xs sm:text-sm text-[#44403C] dark:text-[#D5CDC4] leading-relaxed font-light">
-            {policy.sections.map((section, idx) => (
+            {!policy && (
+              <p
+                role={error ? 'alert' : 'status'}
+                className={error ? 'text-[#A3524A] dark:text-[#E0897F]' : 'text-[#8C827A] dark:text-[#A69C94]'}
+              >
+                {error ?? 'Retrieving filing…'}
+              </p>
+            )}
+
+            {sections.map((section, idx) => (
               <div key={idx} className="space-y-2">
                 <h3 className="font-serif text-lg text-[#1A1918] dark:text-[#F5F2ED] font-semibold">
                   {section.heading}

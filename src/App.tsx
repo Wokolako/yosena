@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { GEMSTONES_CATALOG } from './data/gemstones';
-import { Gemstone, CartItem, PageView, PolicyType, BookingAppointment } from './types';
+import { Gemstone, CartItem, PageView, PolicyType } from './types';
+import { fetchGemstones } from './lib/api';
 import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
@@ -25,17 +25,63 @@ import { ChatWidget } from './components/ChatWidget';
 
 import { AdminDashboard } from './components/AdminDashboard';
 
+/**
+ * Stand-in for the catalog while it loads or when the trade desk is unreachable.
+ * Holds the same vertical space as a populated grid so the page does not jump.
+ */
+const CatalogStatus: React.FC<{ message: string; isError?: boolean }> = ({ message, isError }) => (
+  <div className="py-32 px-4 text-center">
+    <p
+      className={`text-sm sm:text-base font-light tracking-wide ${
+        isError ? 'text-[#A3524A] dark:text-[#E0897F]' : 'text-[#8C827A] dark:text-[#A69C94]'
+      }`}
+      role={isError ? 'alert' : 'status'}
+    >
+      {message}
+    </p>
+  </div>
+);
+
 export default function App() {
   const { user, isRestoring } = useAuth();
   const [currentPage, setCurrentPage] = useState<PageView>('home');
   const [selectedGemstone, setSelectedGemstone] = useState<Gemstone | null>(null);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [savedStoneIds, setSavedStoneIds] = useState<string[]>(['dia-1001', 'sap-2001']);
+  const [gemstones, setGemstones] = useState<Gemstone[]>([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [savedStoneIds, setSavedStoneIds] = useState<string[]>([]);
   const [activePolicy, setActivePolicy] = useState<PolicyType | null>(null);
   const [isSiteGuideOpen, setIsSiteGuideOpen] = useState<boolean>(false);
 
-  // Check hash for stone deep links e.g. #stone=dia-1001 or #admin
+  // The catalog is the one dataset the whole page tree reads, so it is loaded
+  // once here and passed down rather than re-fetched per section.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const stones = await fetchGemstones();
+        if (!cancelled) {
+          setGemstones(stones);
+          setCatalogError(null);
+        }
+      } catch (err: any) {
+        if (!cancelled) setCatalogError(err?.message ?? 'Could not load the vault catalog.');
+      } finally {
+        if (!cancelled) setIsLoadingCatalog(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Check hash for stone deep links e.g. #stone=dia-1001 or #admin.
+  // Depends on `gemstones` so a link opened before the catalog arrives still
+  // resolves once it does.
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -43,7 +89,7 @@ export default function App() {
         setCurrentPage('admin');
       } else if (hash.includes('stone=')) {
         const stoneId = hash.split('stone=')[1]?.split('&')[0];
-        const found = GEMSTONES_CATALOG.find((s) => s.id === stoneId);
+        const found = gemstones.find((s) => s.id === stoneId);
         if (found) {
           setSelectedGemstone(found);
         }
@@ -53,7 +99,7 @@ export default function App() {
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+  }, [gemstones]);
 
   // Load / save cart from localStorage
   useEffect(() => {
@@ -70,6 +116,14 @@ export default function App() {
       // Ignore in iframe restricted environments
     }
   }, []);
+
+  // A signed-in member's vault lives on their account record, so it wins over
+  // whatever this browser happened to have saved anonymously.
+  useEffect(() => {
+    if (user?.savedStoneIds) {
+      setSavedStoneIds(user.savedStoneIds);
+    }
+  }, [user]);
 
   const handleAddToCart = (stone: Gemstone) => {
     setCartItems((prev) => {
@@ -125,7 +179,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const savedStonesList = GEMSTONES_CATALOG.filter((s) => savedStoneIds.includes(s.id));
+  const savedStonesList = gemstones.filter((s) => savedStoneIds.includes(s.id));
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#0F0E0D] text-[#1A1918] dark:text-[#F5F2ED] flex flex-col font-sans selection:bg-[#2C2A29] selection:text-[#FAF8F5] transition-colors duration-200">
@@ -137,7 +191,7 @@ export default function App() {
         cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
         openCart={() => setIsCartOpen(true)}
         openSiteGuide={() => setIsSiteGuideOpen(true)}
-        openVault={() => handleNavigate(user ? 'vault' : 'signin')}
+        openVault={() => handleNavigate(user ? 'vault' : 'join')}
       />
 
       {/* Main Routed Content */}
@@ -149,7 +203,7 @@ export default function App() {
 
             {/* Section 2 & 3: "yosenamora" & "All our diamonds, worth millions." & 3 Containers */}
             <DiamondsShowcase
-              diamonds={GEMSTONES_CATALOG}
+              diamonds={gemstones}
               onSelectStone={(stone) => setSelectedGemstone(stone)}
               onNavigate={handleNavigate}
             />
@@ -186,13 +240,19 @@ export default function App() {
         )}
 
         {currentPage === 'shop' && (
-          <ShopCatalog
-            gemstones={GEMSTONES_CATALOG}
-            onSelectStone={(stone) => setSelectedGemstone(stone)}
-            onAddToCart={handleAddToCart}
-            savedStoneIds={savedStoneIds}
-            onToggleSave={handleToggleSaveStone}
-          />
+          isLoadingCatalog ? (
+            <CatalogStatus message="Opening the vault…" />
+          ) : catalogError ? (
+            <CatalogStatus message={catalogError} isError />
+          ) : (
+            <ShopCatalog
+              gemstones={gemstones}
+              onSelectStone={(stone) => setSelectedGemstone(stone)}
+              onAddToCart={handleAddToCart}
+              savedStoneIds={savedStoneIds}
+              onToggleSave={handleToggleSaveStone}
+            />
+          )
         )}
 
         {currentPage === 'bookings' && (
@@ -215,17 +275,11 @@ export default function App() {
           ) : (
             // Session may still be restoring from a stored token — hold rather than
             // flashing the sign-in form at a member who is already signed in.
-            !isRestoring && <AuthPage mode="signin" onNavigate={handleNavigate} />
+            !isRestoring && <AuthPage onNavigate={handleNavigate} />
           )
         )}
 
-        {currentPage === 'signin' && (
-          <AuthPage mode="signin" onNavigate={handleNavigate} />
-        )}
-
-        {currentPage === 'signup' && (
-          <AuthPage mode="signup" onNavigate={handleNavigate} />
-        )}
+        {currentPage === 'join' && <AuthPage onNavigate={handleNavigate} />}
 
         {currentPage === 'blog' && (
           <BlogSection />
@@ -236,10 +290,24 @@ export default function App() {
         )}
 
         {currentPage === 'admin' && (
-          <AdminDashboard
-            onNavigate={handleNavigate}
-            onSelectStone={(stone) => setSelectedGemstone(stone)}
-          />
+          // The trade desk is gated on the account_role column, not on having a
+          // Clerk session — every /api/admin route re-checks it server-side, so
+          // this only decides what is worth rendering.
+          isRestoring ? (
+            <CatalogStatus message="Checking your access…" />
+          ) : !user ? (
+            <AuthPage onNavigate={handleNavigate} />
+          ) : user.accountRole !== 'admin' ? (
+            <CatalogStatus
+              message="This area is restricted to trade desk administrators."
+              isError
+            />
+          ) : (
+            <AdminDashboard
+              onNavigate={handleNavigate}
+              onSelectStone={(stone) => setSelectedGemstone(stone)}
+            />
+          )
         )}
       </main>
 

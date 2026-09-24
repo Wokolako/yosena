@@ -1,21 +1,31 @@
-import { GEMSTONES_CATALOG } from '../data/gemstones';
-import { CONSULTATION_SERVICES, BLOG_POSTS, POLICY_CONTENTS } from '../data/content';
+// Server-only: queries PostgreSQL. The contact constants live in ./contact so
+// the chat widget can import them in the browser without pulling this module
+// into the client bundle.
+import { db } from '../../backend/data/db';
+import { WHATSAPP_NUMBER, WHATSAPP_URL, CONTACT_EMAIL } from './contact';
 
-/** Public inquiry channel offered whenever the assistant cannot answer from site data. */
-export const WHATSAPP_NUMBER = '+265993287979';
-export const WHATSAPP_URL = 'https://wa.me/265993287979';
-export const CONTACT_EMAIL = 'consult@yosenamora.com';
+export { WHATSAPP_NUMBER, WHATSAPP_URL, CONTACT_EMAIL };
 
 const usd = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 /**
  * Renders the live site data as plain text for the model to answer from.
- * Built from the same modules the pages render, so the assistant can never
- * drift from what a visitor actually sees in the catalog.
+ * Read from the same store the pages are served out of, so the assistant can
+ * never drift from what a visitor actually sees in the catalog.
  */
-export function buildSiteKnowledge(): string {
-  const inventory = GEMSTONES_CATALOG.map((g) =>
+export async function buildSiteKnowledge(): Promise<string> {
+  const [gemstones, services_, posts_, policyDocs] = await Promise.all([
+    db.getGemstones(),
+    db.getServices(),
+    db.getBlogPosts(),
+    db.getPolicies(),
+  ]);
+
+  const consultationServices = services_.filter((s) => s.isActive);
+  const blogPosts = posts_.filter((p) => p.isPublished);
+
+  const inventory = gemstones.map((g) =>
     [
       `- ${g.name} (id: ${g.id}, link: #stone=${g.id})`,
       `  category: ${g.category} | shape: ${g.shape} | carat: ${g.carat}`,
@@ -28,7 +38,7 @@ export function buildSiteKnowledge(): string {
     ].join('\n')
   ).join('\n\n');
 
-  const services = CONSULTATION_SERVICES.map((s) =>
+  const services = consultationServices.map((s) =>
     [
       `- ${s.title}`,
       `  format: ${s.type} | duration: ${s.duration} | fee: ${s.fee}`,
@@ -37,11 +47,11 @@ export function buildSiteKnowledge(): string {
     ].join('\n')
   ).join('\n\n');
 
-  const journal = BLOG_POSTS.map((p) =>
+  const journal = blogPosts.map((p) =>
     `- "${p.title}" (${p.category}, ${p.readTime}, ${p.date}) by ${p.author}, ${p.authorRole}. ${p.excerpt}`
   ).join('\n');
 
-  const policies = Object.values(POLICY_CONTENTS)
+  const policies = policyDocs
     .map((p) => {
       const sections = p.sections.map((s) => `    ${s.heading}: ${s.text}`).join('\n');
       return `- ${p.title} — ${p.subtitle}\n${sections}`;
@@ -49,7 +59,7 @@ export function buildSiteKnowledge(): string {
     .join('\n\n');
 
   return `
-=== CURRENT VAULT INVENTORY (${GEMSTONES_CATALOG.length} stones — this is the COMPLETE list) ===
+=== CURRENT VAULT INVENTORY (${gemstones.length} stones — this is the COMPLETE list) ===
 ${inventory}
 
 === CONSULTATION SERVICES (bookable on the Consultations page) ===

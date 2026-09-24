@@ -1,0 +1,56 @@
+[
+  {
+    "id": "post-1",
+    "title": "Origin Provenance in 2026: Why Traceability Outweighs Carat Size",
+    "category": "Ethical Sourcing",
+    "readTime": "6 min read",
+    "date": "September 2, 2026",
+    "author": "Elena Vance, FGA",
+    "authorRole": "Head of Gemological Provenance",
+    "excerpt": "How blockchain-backed mine extraction registries and laser inscription are reshaping client trust for independent fine jewellers.",
+    "image": "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80",
+    "content": [
+      "The modern ultra-high-net-worth client no longer queries merely about the 4Cs. Today, the paramount inquiry begins with geological origin and worker conditions at the source pit.",
+      "At YosenaMora, our ethical protocol ensures direct chain-of-custody from artisanal cooperative mines in Ratnapura and Muzo directly to our London gemological laboratory without intermediate speculative dealers.",
+      "For independent ateliers, communicating this pedigree creates an unshakeable narrative advantage over mass-market retail conglomerates."
+    ],
+    "sortOrder": 1,
+    "isPublished": true
+  },
+  {
+    "id": "post-2",
+    "title": "The Art of the Type IIa Diamond: Understanding Pure Carbon Architecture",
+    "category": "Gemology",
+    "readTime": "8 min read",
+    "date": "August 18, 2026",
+    "author": "Marcus Yosena",
+    "authorRole": "Managing Director & Senior Gemologist",
+    "excerpt": "Representing less than 1.8% of all mined diamonds, Type IIa stones possess absolute optical transparency devoid of nitrogen.",
+    "image": "https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=800&q=80",
+    "content": [
+      "Chemically purest diamonds exhibit a limpid, watery clarity described by antique dealers as \"limpidity\". Golconda diamonds of antiquity set this benchmark.",
+      "In our current collection, the 14.28ct D Flawless Emerald Cut represents the pinnacle of this atomic perfection, exhibiting zero strain patterns under crossed polarizers.",
+      "Jewellers incorporating Type IIa gems into signature solitaires establish generational heirloom pieces destined for international auction catalogs."
+    ],
+    "sortOrder": 2,
+    "isPublished": true
+  },
+  {
+    "id": "post-3",
+    "title": "Unheated vs. Heated Sapphires: The Collector’s Valuation Multiplier",
+    "category": "Market Intelligence",
+    "readTime": "5 min read",
+    "date": "August 04, 2026",
+    "author": "Soraya Chen, GG (GIA)",
+    "authorRole": "Rare Gemstones Specialist",
+    "excerpt": "Why unheated status commands up to a 300% premium in today’s international auction houses and bespoke jewelry houses.",
+    "image": "https://images.unsplash.com/photo-1598560917505-59a3ad559071?auto=format&fit=crop&w=800&q=80",
+    "content": [
+      "Over 95% of corundum in the retail trade undergoes thermal enhancement to dissolve rutile silk and alter oxidation states.",
+      "When an independent jeweller procures an unheated Ceylon or Madagascar sapphire certified by Gübelin or SSEF, they are acquiring Mother Nature’s unadulterated color palette.",
+      "We counsel our partner jewellers on how to frame this rarity when pitching custom engagement and cocktail commissions."
+    ],
+    "sortOrder": 3,
+    "isPublished": true
+  }
+]

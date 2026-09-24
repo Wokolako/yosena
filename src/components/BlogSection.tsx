@@ -1,18 +1,47 @@
-import React, { useState } from 'react';
-import { BLOG_POSTS } from '../data/content';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import { BlogPost } from '../types';
+import { fetchBlogPosts } from '../lib/api';
 import { ArticleReaderModal } from './ArticleReaderModal';
 import { Clock, Calendar, ArrowRight } from 'lucide-react';
 
 export const BlogSection: React.FC = () => {
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>('All');
+  const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   const categories = ['All', 'Ethical Sourcing', 'Gemology', 'Market Intelligence'];
 
+  // Fetched unfiltered and narrowed below, so switching tabs does not re-hit the
+  // API for a set of articles the page already holds.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await fetchBlogPosts();
+        if (!cancelled) {
+          setPosts(data);
+          setError(null);
+        }
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message ?? 'Could not load the journal.');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filteredPosts = filterCategory === 'All'
-    ? BLOG_POSTS
-    : BLOG_POSTS.filter(p => p.category === filterCategory);
+    ? posts
+    : posts.filter(p => p.category === filterCategory);
 
   return (
     <div className="py-12 lg:py-20 bg-[#FAF8F5] dark:bg-[#0F0E0D] transition-colors">
@@ -47,6 +76,24 @@ export const BlogSection: React.FC = () => {
             </button>
           ))}
         </div>
+
+        {/* Loading & error states */}
+        {(isLoading || error) && (
+          <p
+            role={error ? 'alert' : 'status'}
+            className={`text-center text-sm font-light py-16 ${
+              error ? 'text-[#A3524A] dark:text-[#E0897F]' : 'text-[#8C827A] dark:text-[#A69C94]'
+            }`}
+          >
+            {error ?? 'Retrieving the Gazette…'}
+          </p>
+        )}
+
+        {!isLoading && !error && filteredPosts.length === 0 && (
+          <p className="text-center text-sm font-light py-16 text-[#8C827A] dark:text-[#A69C94]">
+            No articles filed under this category yet.
+          </p>
+        )}
 
         {/* Articles Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

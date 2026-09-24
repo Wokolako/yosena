@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { CONSULTATION_SERVICES } from '../data/content';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import { ConsultationService, BookingAppointment } from '../types';
+import { fetchServices, createBooking } from '../lib/api';
 import { Clock, CheckCircle2, User, Building, Mail, Phone, ArrowRight, Shield } from 'lucide-react';
 
 interface BookingSectionProps {
@@ -8,10 +10,38 @@ interface BookingSectionProps {
 }
 
 export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplete }) => {
-  const [selectedService, setSelectedService] = useState<ConsultationService>(CONSULTATION_SERVICES[0]);
+  const [services, setServices] = useState<ConsultationService[]>([]);
+  const [selectedService, setSelectedService] = useState<ConsultationService | null>(null);
+  const [isLoadingServices, setIsLoadingServices] = useState<boolean>(true);
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-18');
   const [selectedTime, setSelectedTime] = useState<string>('11:30 AM BST');
   const [confirmedBooking, setConfirmedBooking] = useState<BookingAppointment | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // The first tier is preselected so the form is usable the moment it renders.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await fetchServices();
+        if (!cancelled) {
+          setServices(data);
+          setSelectedService(data[0] ?? null);
+          setSubmitError(null);
+        }
+      } catch (err: any) {
+        if (!cancelled) setSubmitError(err?.message ?? 'Could not load consultation tiers.');
+      } finally {
+        if (!cancelled) setIsLoadingServices(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -38,29 +68,36 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
     '05:00 PM BST',
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // The reference number and id are issued by the trade desk, not invented here,
+  // so the confirmation screen shows the record that was actually persisted.
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.clientName || !formData.email) return;
+    if (!formData.clientName || !formData.email || !selectedService || isSubmitting) return;
 
-    const refNum = `BK-${Math.floor(100000 + Math.random() * 900000)}`;
-    const appointment: BookingAppointment = {
-      id: `apt-${Date.now()}`,
-      serviceId: selectedService.id,
-      serviceTitle: selectedService.title,
-      date: selectedDate,
-      time: selectedTime,
-      clientName: formData.clientName,
-      companyName: formData.companyName || 'Independent Atelier',
-      email: formData.email,
-      phone: formData.phone || 'N/A',
-      specificInquiry: formData.specificInquiry,
-      status: 'Confirmed',
-      referenceNumber: refNum,
-    };
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    setConfirmedBooking(appointment);
-    if (onBookingComplete) {
-      onBookingComplete(appointment);
+    try {
+      const appointment = await createBooking({
+        serviceId: selectedService.id,
+        serviceTitle: selectedService.title,
+        date: selectedDate,
+        time: selectedTime,
+        clientName: formData.clientName,
+        companyName: formData.companyName || 'Independent Atelier',
+        email: formData.email,
+        phone: formData.phone || 'N/A',
+        specificInquiry: formData.specificInquiry,
+      });
+
+      setConfirmedBooking(appointment);
+      if (onBookingComplete) {
+        onBookingComplete(appointment);
+      }
+    } catch (err: any) {
+      setSubmitError(err?.message ?? 'The appointment could not be registered.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -141,8 +178,20 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
               </h3>
 
               <div className="space-y-3">
-                {CONSULTATION_SERVICES.map((service) => {
-                  const isSelected = selectedService.id === service.id;
+                {isLoadingServices && (
+                  <p role="status" className="text-xs sm:text-sm font-light text-[#8C827A] dark:text-[#A69C94] py-6">
+                    Loading consultation tiers&hellip;
+                  </p>
+                )}
+
+                {!isLoadingServices && services.length === 0 && (
+                  <p role="alert" className="text-xs sm:text-sm font-light text-[#A3524A] dark:text-[#E0897F] py-6">
+                    No consultation tiers are open for booking right now.
+                  </p>
+                )}
+
+                {services.map((service) => {
+                  const isSelected = selectedService?.id === service.id;
                   return (
                     <div
                       key={service.id}
@@ -339,11 +388,18 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
                   />
                 </div>
 
+                {submitError && (
+                  <p role="alert" className="text-xs sm:text-sm font-light text-[#A3524A] dark:text-[#E0897F]">
+                    {submitError}
+                  </p>
+                )}
+
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  disabled={isSubmitting || !selectedService}
+                  className="w-full py-3.5 bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <span>Confirm Appointment</span>
+                  <span>{isSubmitting ? 'Registering…' : 'Confirm Appointment'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>

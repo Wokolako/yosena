@@ -1,6 +1,4 @@
 export * from './data/db';
-export * from './auth/jwt';
-export * from './auth/password';
 export * from './auth/authMiddleware';
 export * from './controllers/authController';
 export * from './controllers/gemstoneController';

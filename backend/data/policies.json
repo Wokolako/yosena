@@ -1,0 +1,130 @@
+[
+  {
+    "id": "ethical-sourcing",
+    "slug": "ethical-sourcing",
+    "title": "Ethical Sourcing & Quality Assurance",
+    "subtitle": "Zero-compromise direct mine traceability and fair compensation charter",
+    "sortOrder": 1,
+    "sections": [
+      {
+        "heading": "1. The YosenaMora Ethical Protocol",
+        "text": "YosenaMora sources exclusively from verified ethical artisanal cooperatives and certified industrial extraction partners who adhere to the strict OECD Due Diligence Guidance for Responsible Supply Chains. We maintain a zero-tolerance policy against conflict financing and child labor.",
+        "sortOrder": 1
+      },
+      {
+        "heading": "2. Direct Mine Origin Verification",
+        "text": "Every parcel and single investment stone above 1.00ct is cataloged with micro-chemical fingerprinting and confirmed through accredited independent laboratories including GIA, Gübelin, and SSEF.",
+        "sortOrder": 2
+      },
+      {
+        "heading": "3. Community Reinvestment",
+        "text": "5% of our net annual operational margin is directly routed into educational facilities, clean water infrastructure, and lapidary scholarship funds in our partner mining districts in Sri Lanka, Madagascar, and Colombia.",
+        "sortOrder": 3
+      }
+    ]
+  },
+  {
+    "id": "shipping-returns",
+    "slug": "shipping-returns",
+    "title": "Shipping, Delivery & Returns",
+    "subtitle": "Armored transit, global customs clearance, and jeweller inspection memos",
+    "sortOrder": 2,
+    "sections": [
+      {
+        "heading": "1. Armored Courier Transit",
+        "text": "All international consignments exceeding $10,000 USD are dispatched via Malca-Amit, Ferrari Logistics, or Brink’s Global Services with door-to-vault armored escort and 100% full declared value underwriters coverage.",
+        "sortOrder": 1
+      },
+      {
+        "heading": "2. B2B 14-Day Inspection Window",
+        "text": "Verified trade account members receive a 14-calendar-day inspection window on consignment memos. If a stone does not align with your client’s CAD tolerances, return it in original tamper-evident security packaging for zero restocking penalty.",
+        "sortOrder": 2
+      },
+      {
+        "heading": "3. Customs & ATA Carnet Support",
+        "text": "Our logistics desk handles international import declarations, VAT deferment procedures, and ATA Carnet documentation for temporary overseas showcase exhibitions.",
+        "sortOrder": 3
+      }
+    ]
+  },
+  {
+    "id": "terms",
+    "slug": "terms",
+    "title": "Terms & Conditions",
+    "subtitle": "Trade partner agreement, memo policies, and reserve allocations",
+    "sortOrder": 3,
+    "sections": [
+      {
+        "heading": "1. Wholesale Eligibility",
+        "text": "Wholesale pricing, lot parcels, and memo consignments are reserved exclusively for licensed trade jewellers, gemological appraisers, and verified luxury ateliers holding valid tax identification.",
+        "sortOrder": 1
+      },
+      {
+        "heading": "2. Title & Risk of Loss",
+        "text": "Title transfers upon settled bank wire clearance. Until such clearance, all gems consigned on memo remain the sole property of YosenaMora Atelier LLC.",
+        "sortOrder": 2
+      }
+    ]
+  },
+  {
+    "id": "privacy",
+    "slug": "privacy",
+    "title": "Privacy Policy",
+    "subtitle": "Strict discretion and high-security client data governance",
+    "sortOrder": 4,
+    "sections": [
+      {
+        "heading": "1. Discretion for High-Value Clients",
+        "text": "We respect the sensitive nature of high-value gemstone acquisitions. Client identities, bespoke CAD submissions, and private vault appointments are protected under strict bilateral non-disclosure agreements.",
+        "sortOrder": 1
+      },
+      {
+        "heading": "2. Data Protection & GDPR Compliance",
+        "text": "We never sell or distribute member credentials, transaction records, or inquiry history. Your data is encrypted at rest using AES-256 protocols.",
+        "sortOrder": 2
+      }
+    ]
+  },
+  {
+    "id": "cookies",
+    "slug": "cookies",
+    "title": "Cookie Policy",
+    "subtitle": "Essential session management and preference retention",
+    "sortOrder": 5,
+    "sections": [
+      {
+        "heading": "1. Strictly Necessary Cookies",
+        "text": "Our platform utilizes strictly functional cookies to preserve your currency selection, active shopping cart, and authenticated member vault sessions.",
+        "sortOrder": 1
+      }
+    ]
+  },
+  {
+    "id": "legal-notice",
+    "slug": "legal-notice",
+    "title": "Legal Notice",
+    "subtitle": "Corporate registration and registered gemological seats",
+    "sortOrder": 6,
+    "sections": [
+      {
+        "heading": "Corporate Seat",
+        "text": "YosenaMora Atelier & Diamond Suppliers | International Vault Suite: 14 Hatton Garden, London EC1N 8AT, United Kingdom. Secondary Trade Desk: Rue du Rhône, 1204 Genève, Switzerland. Registered Contact: consult@yosenamora.com",
+        "sortOrder": 1
+      }
+    ]
+  },
+  {
+    "id": "accessibility",
+    "slug": "accessibility",
+    "title": "Accessibility Statement",
+    "subtitle": "Inclusive digital experience for all trade professionals",
+    "sortOrder": 7,
+    "sections": [
+      {
+        "heading": "Digital Conformance",
+        "text": "We are committed to ensuring digital accessibility conforming to WCAG 2.1 Level AA standards, featuring high-contrast ratios, complete keyboard navigation, and descriptive alt attributes on all gemstone photography.",
+        "sortOrder": 1
+      }
+    ]
+  }
+]

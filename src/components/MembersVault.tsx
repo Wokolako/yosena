@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import { Gemstone } from '../types';
 import { AuthUser } from '../context/AuthContext';
+import { fetchMemos, Memo } from '../lib/api';
 import { 
   ShieldCheck, 
   FileText, 
@@ -29,6 +32,34 @@ export const MembersVault: React.FC<MembersVaultProps> = ({
   const [activeTab, setActiveTab] = useState<'vault' | 'memos' | 'settings'>('vault');
   const [notifyDrops, setNotifyDrops] = useState(user.preferences.notifyDrops);
   const [notifyMemos, setNotifyMemos] = useState(user.preferences.notifyMemos);
+  const [memos, setMemos] = useState<Memo[]>([]);
+  const [isLoadingMemos, setIsLoadingMemos] = useState<boolean>(true);
+  const [memoError, setMemoError] = useState<string | null>(null);
+
+  // The API scopes this to the bearer token, so it returns only this member's
+  // consignments — re-fetched if the signed-in account changes.
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingMemos(true);
+
+    (async () => {
+      try {
+        const data = await fetchMemos();
+        if (!cancelled) {
+          setMemos(data);
+          setMemoError(null);
+        }
+      } catch (err: any) {
+        if (!cancelled) setMemoError(err?.message ?? 'Could not load your consignment memos.');
+      } finally {
+        if (!cancelled) setIsLoadingMemos(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id]);
 
   // Initials from the account holder's name, falling back to the company.
   const initials = (user.clientName || user.companyName)
@@ -44,29 +75,8 @@ export const MembersVault: React.FC<MembersVaultProps> = ({
     maximumFractionDigits: 0,
   });
 
-  // Simulated active memo consignments
-  const mockMemos = [
-    {
-      id: 'MEMO-9021',
-      stoneName: '9.65ct Unheated Royal Blue Ceylon Sapphire',
-      dateDispatched: '2026-09-08',
-      daysRemaining: 9,
-      courier: 'Ferrari Logistics (Armored)',
-      tracking: 'FER-8829104-UK',
-      declaredValue: '$168,000 USD',
-      status: 'On Inspection at Client Atelier',
-    },
-    {
-      id: 'MEMO-8840',
-      stoneName: '5.42ct E VVS2 Oval Brilliant Diamond',
-      dateDispatched: '2026-09-02',
-      daysRemaining: 3,
-      courier: 'Malca-Amit High Value',
-      tracking: 'MA-91044-LON',
-      declaredValue: '$495,000 USD',
-      status: 'Awaiting Settlement Wire',
-    }
-  ];
+  const usd = (value: number) =>
+    value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
   return (
     <div className="py-12 lg:py-20 bg-[#FAF8F5] dark:bg-[#0F0E0D] transition-colors">
@@ -119,7 +129,7 @@ export const MembersVault: React.FC<MembersVaultProps> = ({
             }`}
           >
             <FileText className="w-4 h-4 text-[#C5A880]" />
-            <span>Active Consignment Memos ({mockMemos.length})</span>
+            <span>Active Consignment Memos ({memos.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -206,7 +216,24 @@ export const MembersVault: React.FC<MembersVaultProps> = ({
         {/* Tab Content 2: Active Memos */}
         {activeTab === 'memos' && (
           <div className="space-y-4">
-            {mockMemos.map((memo) => (
+            {(isLoadingMemos || memoError) && (
+              <p
+                role={memoError ? 'alert' : 'status'}
+                className={`text-xs sm:text-sm font-light py-6 ${
+                  memoError ? 'text-[#A3524A] dark:text-[#E0897F]' : 'text-[#8C827A] dark:text-[#A69C94]'
+                }`}
+              >
+                {memoError ?? 'Retrieving your consignments…'}
+              </p>
+            )}
+
+            {!isLoadingMemos && !memoError && memos.length === 0 && (
+              <p className="text-xs sm:text-sm font-light py-6 text-[#8C827A] dark:text-[#A69C94]">
+                You have no consignment memos out at the moment.
+              </p>
+            )}
+
+            {memos.map((memo) => (
               <div
                 key={memo.id}
                 className="bg-[#FFFFFF] dark:bg-[#181614] border border-[#E8E1D9] dark:border-[#262320] rounded-lg p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-6 shadow-sm"
@@ -222,7 +249,7 @@ export const MembersVault: React.FC<MembersVaultProps> = ({
                   <div className="flex flex-wrap gap-4 text-xs sm:text-sm text-[#78716C] dark:text-[#A69C94] pt-1">
                     <span>Courier: <strong className="text-[#1A1918] dark:text-[#F5F2ED]">{memo.courier}</strong></span>
                     <span>Tracking: <strong className="text-[#1A1918] dark:text-[#F5F2ED]">{memo.tracking}</strong></span>
-                    <span>Declared Value: <strong className="text-[#1A1918] dark:text-[#F5F2ED]">{memo.declaredValue}</strong></span>
+                    <span>Declared Value: <strong className="text-[#1A1918] dark:text-[#F5F2ED]">{usd(memo.declaredValueUSD)}</strong></span>
                   </div>
                 </div>
 
@@ -234,7 +261,7 @@ export const MembersVault: React.FC<MembersVaultProps> = ({
                     </span>
                   </div>
                   <a
-                    href="mailto:consult@yosenamora.com?subject=Settlement%20for%20Memo%20MEMO-9021"
+                    href={`mailto:consult@yosenamora.com?subject=${encodeURIComponent(`Settlement for Memo ${memo.id}`)}`}
                     className="px-5 py-2.5 bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] text-xs sm:text-sm uppercase tracking-wider font-bold rounded hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] transition-colors whitespace-nowrap cursor-pointer"
                   >
                     Confirm Purchase / Return

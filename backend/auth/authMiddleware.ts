@@ -1,49 +1,55 @@
-import { Request, Response, NextFunction } from 'express';
-import { verifyToken, extractBearerToken, TokenPayload } from './jwt';
-import { db } from '../data/db';
+import { Response, NextFunction } from 'express';
+import type { Request } from 'express';
+import { getAuth } from '@clerk/express';
+import { db, UserData } from '../data/db';
 
+/**
+ * Clerk-backed request authentication for the standalone Express API.
+ *
+ * Identity comes from the Clerk session that `clerkMiddleware()` attaches in
+ * server.ts. Role, member id and credit line are then read from this app's own
+ * database rather than trusted from anything the client sent — the request
+ * carries no claims of its own.
+ */
 export interface AuthenticatedRequest extends Request {
-  user?: TokenPayload;
+  /** The caller's trade record, set once authentication succeeds. */
+  user?: UserData;
 }
 
-export function authenticateToken(
+export async function authenticateToken(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
-): void {
-  const authHeader = req.headers.authorization;
-  const token = extractBearerToken(authHeader);
+): Promise<void> {
+  try {
+    const { userId } = getAuth(req);
 
-  if (!token) {
-    res.status(401).json({
-      success: false,
-      error: 'Authentication required. Please provide a valid Bearer token in the Authorization header.'
-    });
-    return;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        error: 'Authentication required. Sign in to continue.'
+      });
+      return;
+    }
+
+    const user = await db.getUserByClerkId(userId);
+
+    if (!user) {
+      // Authenticated with Clerk but no trade record yet. The Next app
+      // provisions one on first visit to the vault; this API does not create
+      // accounts as a side effect of an arbitrary request.
+      res.status(403).json({
+        success: false,
+        error: 'No trade account is linked to this sign-in.'
+      });
+      return;
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
   }
-
-  const payload = verifyToken(token);
-  if (!payload) {
-    res.status(403).json({
-      success: false,
-      error: 'Invalid or expired authentication token. Please sign in again.'
-    });
-    return;
-  }
-
-  // Ensure user still exists in database
-  const users = db.getUsers();
-  const userExists = users.some((u) => u.id === payload.userId);
-  if (!userExists) {
-    res.status(401).json({
-      success: false,
-      error: 'User account not found or revoked.'
-    });
-    return;
-  }
-
-  req.user = payload;
-  next();
 }
 
 export function requireRole(allowedRoles: Array<'trade_partner' | 'admin' | 'jeweller'>) {
@@ -51,7 +57,7 @@ export function requireRole(allowedRoles: Array<'trade_partner' | 'admin' | 'jew
     if (!req.user) {
       res.status(401).json({
         success: false,
-        error: 'Unauthorized. Authentication token is missing.'
+        error: 'Unauthorized. Authentication is required.'
       });
       return;
     }

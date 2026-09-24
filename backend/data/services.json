@@ -1,0 +1,35 @@
+[
+  {
+    "id": "srv-1",
+    "title": "High-Value Diamond & Investment Stone Viewing",
+    "duration": "60 minutes",
+    "type": "In-Person Vault",
+    "fee": "Complimentary for Verified Trade Members",
+    "description": "Private physical viewing of investment-grade Type IIa diamonds, fancy colored diamonds, and unheated master gems in our secure private viewing suites (London, Geneva, or New York).",
+    "suitableFor": "Independent high-jewellery designers, private family offices, and verified bespoke ateliers.",
+    "sortOrder": 1,
+    "isActive": true
+  },
+  {
+    "id": "srv-2",
+    "title": "B2B Atelier Gem Sourcing & Parcel Curation",
+    "duration": "45 minutes",
+    "type": "Virtual",
+    "fee": "Complimentary",
+    "description": "Direct video gemological appraisal and calibrated parcel curation. Review high-resolution 40x macro footage, spectral reports, and exact millimeter tolerances for your upcoming collection.",
+    "suitableFor": "Master jewellers seeking matching pairs, layout suites, or specific custom-cut center stones.",
+    "sortOrder": 2,
+    "isActive": true
+  },
+  {
+    "id": "srv-3",
+    "title": "Rough Gem Evaluation & Custom Lapidary Commission",
+    "duration": "90 minutes",
+    "type": "Atelier Visit",
+    "fee": "$450 (Credited upon purchase)",
+    "description": "Collaborate directly with our master lapidary to determine optimal rough orientation, weight retention versus light return, and bespoke facet arrangements for client bespoke projects.",
+    "suitableFor": "Artisan goldsmiths and custom jewelers requiring non-standard cuts or antique revival profiles.",
+    "sortOrder": 3,
+    "isActive": true
+  }
+]

@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, OrderData } from '../../../../backend/data/db';
-import { extractBearerToken, verifyToken } from '../../../../backend/auth/jwt';
+import { getTradeUser } from '../../../lib/requireUser';
 
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization') || undefined;
-    const token = extractBearerToken(authHeader);
-    const payload = token ? verifyToken(token) : null;
+    const user = await getTradeUser();
 
-    const orders = db.getOrders();
-    if (payload && payload.accountRole !== 'admin') {
-      const userOrders = orders.filter((o) => o.userId === payload.userId || o.email === payload.email);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication required.' },
+        { status: 401 }
+      );
+    }
+
+    if (user.accountRole !== 'admin') {
+      const userOrders = await db.getOrdersForUser(user.id, user.email);
       return NextResponse.json({ success: true, count: userOrders.length, data: userOrders });
     }
 
+    const orders = await db.getOrders();
     return NextResponse.json({ success: true, count: orders.length, data: orders });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: 'Failed to retrieve orders.' }, { status: 500 });
@@ -22,9 +27,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization') || undefined;
-    const token = extractBearerToken(authHeader);
-    const payload = token ? verifyToken(token) : null;
+    // Checkout is open to guests, so an order may have no account behind it.
+    const user = await getTradeUser();
 
     const body = await req.json();
     const { items, clientName, companyName, email, paymentMethod, shippingService } = body;
@@ -45,8 +49,8 @@ export async function POST(req: NextRequest) {
     const orderId = `ORD-2026-${Math.floor(100 + Math.random() * 900)}`;
     const newOrder: OrderData = {
       id: orderId,
-      userId: payload?.userId,
-      memberId: payload?.memberId,
+      userId: user?.id,
+      memberId: user?.memberId,
       clientName: String(clientName).trim(),
       companyName: (companyName || 'Independent Fine Jeweller').trim(),
       email: String(email).trim().toLowerCase(),
@@ -64,15 +68,13 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString()
     };
 
-    const orders = db.getOrders();
-    orders.unshift(newOrder);
-    db.saveOrders(orders);
+    const saved = await db.createOrder(newOrder);
 
     return NextResponse.json(
       {
         success: true,
         message: 'High-value acquisition order registered.',
-        data: newOrder
+        data: saved
       },
       { status: 201 }
     );

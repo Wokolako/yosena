@@ -1,21 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, MemoData } from '../../../../backend/data/db';
-import { extractBearerToken, verifyToken } from '../../../../backend/auth/jwt';
+import { getTradeUser } from '../../../lib/requireUser';
 
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization') || undefined;
-    const token = extractBearerToken(authHeader);
-    const payload = token ? verifyToken(token) : null;
+    const user = await getTradeUser();
 
-    const memos = db.getMemos();
-    if (payload && payload.accountRole !== 'admin') {
-      const userMemos = memos.filter(
-        (m) => m.userId === payload.userId || m.memberId === payload.memberId
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication required.' },
+        { status: 401 }
       );
+    }
+
+    if (user.accountRole !== 'admin') {
+      const userMemos = await db.getMemosForUser(user.id, user.memberId);
       return NextResponse.json({ success: true, count: userMemos.length, data: userMemos });
     }
 
+    const memos = await db.getMemos();
     return NextResponse.json({ success: true, count: memos.length, data: memos });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: 'Failed to retrieve memos.' }, { status: 500 });
@@ -24,9 +27,29 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization') || undefined;
-    const token = extractBearerToken(authHeader);
-    const payload = token ? verifyToken(token) : null;
+    const user = await getTradeUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication required.' },
+        { status: 401 }
+      );
+    }
+
+    // Creating a memo takes a stone off the public floor and ships it on
+    // consignment against the member's credit line. A Clerk account alone is
+    // not standing for that — anyone can make one, and new accounts land as
+    // unverified trade partners. The desk verifies the business first.
+    if (!user.isVerifiedTrade && user.accountRole !== 'admin') {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Memo consignment is open to verified trade members. Our desk will confirm your business credentials first.'
+        },
+        { status: 403 }
+      );
+    }
 
     const body = await req.json();
     const { stoneId, notes } = body;
@@ -38,8 +61,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const stones = db.getGemstones();
-    const stone = stones.find((s) => s.id === stoneId);
+    const stone = await db.getGemstoneById(stoneId);
 
     if (!stone) {
       return NextResponse.json({ success: false, error: 'Gemstone not found.' }, { status: 404 });
@@ -50,9 +72,9 @@ export async function POST(req: NextRequest) {
 
     const newMemo: MemoData = {
       id: memoId,
-      userId: payload?.userId || 'usr-atelier-01',
-      memberId: payload?.memberId || 'YM-ATELIER-7741',
-      companyName: payload?.companyName || 'Atelier Sterling & Co.',
+      userId: user.id,
+      memberId: user.memberId,
+      companyName: user.companyName,
       stoneId: stone.id,
       stoneName: stone.name,
       dateDispatched: new Date().toISOString().split('T')[0],
@@ -65,18 +87,14 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString()
     };
 
-    stone.status = 'On Memo';
-    db.saveGemstones(stones);
-
-    const memos = db.getMemos();
-    memos.unshift(newMemo);
-    db.saveMemos(memos);
+    // Records the memo and flips the stone to 'On Memo' in one transaction.
+    const saved = await db.createMemo(newMemo);
 
     return NextResponse.json(
       {
         success: true,
         message: 'Memo consignment request confirmed. Armored logistics dispatched.',
-        data: newMemo
+        data: saved
       },
       { status: 201 }
     );
