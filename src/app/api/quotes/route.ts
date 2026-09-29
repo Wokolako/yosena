@@ -1,135 +1,62 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db, QuoteData } from '../../../../backend/data/db';
+import { NextRequest } from 'next/server';
+import { db, QuoteRecord } from '@backend/store/db';
+import { getSessionUser } from '@backend/auth/session';
+import { handle, ok, readJson, assertSameOrigin, clientIp } from '@backend/lib/http';
+import { rateLimit } from '@backend/lib/rateLimit';
+import { newReference } from '@backend/lib/ids';
+import * as v from '@backend/lib/validate';
+import { GEM_CATEGORIES, GEM_SHAPES } from '@/types';
+import { CLARITY_TIERS, estimateQuote } from '@/lib/quotePricing';
 
-const BASE_PRICE_PER_CARAT: Record<string, number> = {
-  Diamond: 12500,
-  Sapphire: 6800,
-  Emerald: 8900,
-  Ruby: 14000,
-  Spinel: 4200,
-  Tourmaline: 5800
-};
+/**
+ * Wholesale quote requests. The estimate is recomputed here with the same formula
+ * the calculator shows. Listing requests is admin-only (/api/admin/quotes).
+ */
+export const POST = handle(async (req: NextRequest) => {
+  assertSameOrigin(req);
+  rateLimit(`quote-request:ip:${clientIp(req)}`, 8, 60 * 60_000);
+  const body = await readJson(req, 16_000);
 
-const SHAPE_MULTIPLIERS: Record<string, number> = {
-  'Emerald Cut': 1.15,
-  'Cushion': 1.05,
-  'Round Brilliant': 1.25,
-  'Oval': 1.10,
-  'Pear': 1.05,
-  'Asscher': 1.20
-};
+  const gemType = v.oneOf(body.gemType, 'Gemstone variety', GEM_CATEGORIES);
+  const shape = v.oneOf(body.shape, 'Cut profile', GEM_SHAPES);
+  const caratSize = v.num(body.caratSize, 'Carat weight', { min: 0.25, max: 50 });
+  const clarityTier = v.oneOf(body.clarityTier, 'Clarity tier', CLARITY_TIERS);
+  const quantity = v.num(body.quantity, 'Quantity', { min: 1, max: 50, integer: true });
+  const originPreference = v.str(body.originPreference, 'Origin preference', { max: 120 });
+  const jewellerBusiness = v.str(body.jewellerBusiness, 'Business name', { required: true, max: 160 });
+  const contactEmail = v.email(body.contactEmail);
+  const notes = v.str(body.notes, 'Notes', { max: 2000 });
 
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const email = searchParams.get('email');
-    let quotes = db.getQuotes();
+  const estimate = estimateQuote({ gemType, caratSize, clarityTier, quantity });
+  const user = await getSessionUser();
 
-    if (email) {
-      quotes = quotes.filter((q) => q.contactEmail.toLowerCase() === email.toLowerCase());
-    }
+  const quote: QuoteRecord = {
+    id: newReference('QT'),
+    gemType,
+    shape,
+    caratSize,
+    caratMin: caratSize,
+    caratMax: caratSize,
+    clarityTier,
+    originPreference,
+    quantity,
+    jewellerBusiness,
+    contactEmail,
+    notes,
+    estimatedUnitPrice: estimate.unitPrice,
+    estimatedTotal: estimate.total,
+    status: 'New',
+    userId: user?.id ?? null,
+    createdAt: new Date().toISOString(),
+  };
 
-    return NextResponse.json({ success: true, count: quotes.length, data: quotes });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: 'Failed to fetch quote requests.' }, { status: 500 });
-  }
-}
+  db.transaction((tx) => tx.set('quotes', [quote, ...tx.get('quotes')]));
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { action } = body;
-
-    // Calculation mode
-    if (action === 'calculate') {
-      const { gemType, shape, caratMin, caratMax, quantity, certification } = body;
-      const typeKey = String(gemType || 'Diamond');
-      const shapeKey = String(shape || 'Emerald Cut');
-      const minC = parseFloat(String(caratMin || 1.5));
-      const maxC = parseFloat(String(caratMax || 3.0));
-      const qty = parseInt(String(quantity || 1), 10);
-
-      const basePerCarat = BASE_PRICE_PER_CARAT[typeKey] || 7500;
-      const shapeMult = SHAPE_MULTIPLIERS[shapeKey] || 1.1;
-      const avgCarat = (minC + maxC) / 2;
-      const weightMultiplier = Math.pow(avgCarat, 1.25);
-
-      let volumeDiscount = 0;
-      if (qty >= 10) volumeDiscount = 0.15;
-      else if (qty >= 5) volumeDiscount = 0.10;
-      else if (qty >= 3) volumeDiscount = 0.05;
-
-      const unitPrice = Math.round(basePerCarat * shapeMult * weightMultiplier * (1 - volumeDiscount));
-      const estimatedTotal = unitPrice * qty;
-
-      return NextResponse.json({
-        success: true,
-        calculation: {
-          gemType: typeKey,
-          shape: shapeKey,
-          avgCarat: parseFloat(avgCarat.toFixed(2)),
-          quantity: qty,
-          certification: certification || 'GIA / SSEF',
-          estimatedUnitPriceUSD: unitPrice,
-          estimatedTotalUSD: estimatedTotal,
-          volumeDiscountPercentage: volumeDiscount * 100,
-          currency: 'USD',
-          pricingValidityDays: 14
-        }
-      });
-    }
-
-    // Submission mode
-    const {
-      gemType,
-      shape,
-      caratMin,
-      caratMax,
-      targetBudget,
-      quantity,
-      certificationPreference,
-      jewellerBusiness,
-      contactEmail,
-      notes
-    } = body;
-
-    if (!gemType || !shape || !contactEmail || !jewellerBusiness) {
-      return NextResponse.json(
-        { success: false, error: 'Gemstone type, shape, contact email, and jeweller business name are required.' },
-        { status: 400 }
-      );
-    }
-
-    const quoteId = `QT-${Math.floor(9000 + Math.random() * 1000)}`;
-    const newQuote: QuoteData = {
-      id: quoteId,
-      gemType: String(gemType),
-      shape: String(shape),
-      caratMin: Number(caratMin || 1.0),
-      caratMax: Number(caratMax || 3.0),
-      targetBudget: Number(targetBudget || 50000),
-      quantity: Number(quantity || 1),
-      certificationPreference: certificationPreference || 'GIA',
-      jewellerBusiness: String(jewellerBusiness).trim(),
-      contactEmail: String(contactEmail).trim().toLowerCase(),
-      notes: (notes || '').trim(),
-      status: 'Trade Desk Underwriting',
-      createdAt: new Date().toISOString()
-    };
-
-    const quotes = db.getQuotes();
-    quotes.unshift(newQuote);
-    db.saveQuotes(quotes);
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: 'Wholesale quote allocation request received. Our trade desk will respond within 4 business hours.',
-        data: newQuote
-      },
-      { status: 201 }
-    );
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: 'Failed to process quote.' }, { status: 500 });
-  }
-}
+  return ok(
+    {
+      message: 'Quote request received. A specialist will reply from the trade desk.',
+      data: { id: quote.id, estimatedTotal: quote.estimatedTotal, status: quote.status },
+    },
+    201
+  );
+});

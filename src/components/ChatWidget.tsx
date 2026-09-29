@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { WHATSAPP_URL } from '../lib/siteKnowledge';
+import { WHATSAPP_URL } from '../lib/contact';
 import { MessageCircle, X, Send, Loader2, RotateCcw } from 'lucide-react';
 import { Gemstone } from '../types';
-import { GEMSTONES_CATALOG } from '../data/gemstones';
+import { useSiteData } from '../context/SiteDataContext';
 
 interface ChatWidgetProps {
   onSelectStone?: (stone: Gemstone) => void;
@@ -26,7 +26,17 @@ const SUGGESTIONS = [
   'How do memo terms work?',
 ];
 
-function renderFormattedText(text: string, onSelectStone?: (stone: Gemstone) => void) {
+/** Only web links are clickable; any other scheme in model output is shown as plain text. */
+const isSafeExternalUrl = (url: string) => {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
+};
+
+function renderFormattedText(text: string, stones: Gemstone[], onSelectStone?: (stone: Gemstone) => void) {
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
   const parts: (string | React.ReactNode)[] = [];
   let lastIndex = 0;
@@ -43,7 +53,7 @@ function renderFormattedText(text: string, onSelectStone?: (stone: Gemstone) => 
 
     if (url.startsWith('#stone=') || url.startsWith('#gemstone=')) {
       const stoneId = url.split('=')[1];
-      const stone = GEMSTONES_CATALOG.find((s) => s.id === stoneId);
+      const stone = stones.find((s) => s.id === stoneId);
 
       parts.push(
         <button
@@ -64,6 +74,8 @@ function renderFormattedText(text: string, onSelectStone?: (stone: Gemstone) => 
           </svg>
         </button>
       );
+    } else if (!isSafeExternalUrl(url)) {
+      parts.push(label);
     } else {
       parts.push(
         <a
@@ -105,6 +117,7 @@ const WhatsAppHandoff: React.FC = () => (
 );
 
 export const ChatWidget: React.FC<ChatWidgetProps> = ({ onSelectStone }) => {
+  const { stones } = useSiteData();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window !== 'undefined') {
@@ -278,7 +291,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ onSelectStone }) => {
                           : 'bg-[#FFFFFF] dark:bg-[#181614] border border-[#E8E1D9] dark:border-[#262320] text-[#44403C] dark:text-[#D5CDC4] rounded-bl-sm'
                     }`}
                   >
-                    {renderFormattedText(msg.text, onSelectStone)}
+                    {renderFormattedText(msg.text, stones, onSelectStone)}
                   </div>
                   {msg.role === 'model' && msg.handoff && <WhatsAppHandoff />}
                 </div>

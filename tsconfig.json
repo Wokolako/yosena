@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@backend/*": [
+        "./backend/*"
       ]
     }
   },
@@ -36,6 +39,13 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "backend/index.ts",
+    "backend/server.ts",
+    "backend/routes",
+    "backend/controllers",
+    "backend/middleware",
+    "backend/auth/authMiddleware.ts",
+    "backend/data"
   ]
 }

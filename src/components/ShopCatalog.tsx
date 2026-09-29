@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Gemstone } from '../types';
+import { Gemstone, isPurchasable } from '../types';
 import { Search, Eye, ShoppingBag, Check, RotateCcw } from 'lucide-react';
 
 interface ShopCatalogProps {
@@ -51,6 +51,7 @@ export const ShopCatalog: React.FC<ShopCatalogProps> = ({
 
   const handleAddToCartWithFeedback = (stone: Gemstone, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!isPurchasable(stone)) return;
     onAddToCart(stone);
     setAddedNoticeId(stone.id);
     setTimeout(() => setAddedNoticeId(null), 1800);
@@ -233,6 +234,13 @@ export const ShopCatalog: React.FC<ShopCatalogProps> = ({
                         {stone.certification}
                       </div>
 
+                      {/* Availability, when the stone cannot be ordered */}
+                      {!isPurchasable(stone) && (
+                        <div className="absolute bottom-2.5 left-2.5 bg-[#1A1918]/90 text-[#FAF8F5] px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider">
+                          {stone.status}
+                        </div>
+                      )}
+
                       {/* Hover Overlay with Quick Inspect */}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-4">
                         <span className="px-4 py-2 bg-[#FAF8F5] text-[#1A1918] text-xs uppercase tracking-wider font-bold rounded shadow-md flex items-center gap-1.5">
@@ -304,13 +312,17 @@ export const ShopCatalog: React.FC<ShopCatalogProps> = ({
 
                       <button
                         onClick={(e) => handleAddToCartWithFeedback(stone, e)}
-                        className={`py-2 text-xs uppercase tracking-wider rounded transition-all flex items-center justify-center gap-1.5 cursor-pointer font-bold ${
+                        disabled={!isPurchasable(stone)}
+                        title={isPurchasable(stone) ? 'Add to your order or memo request' : `Not available — ${stone.status}`}
+                        className={`py-2 text-xs uppercase tracking-wider rounded transition-all flex items-center justify-center gap-1.5 cursor-pointer font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
                           isJustAdded
                             ? 'bg-[#2E7D32] text-white'
                             : 'bg-[#1A1918] dark:bg-[#F5F2ED] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] text-[#FAF8F5] dark:text-[#1A1918]'
                         }`}
                       >
-                        {isJustAdded ? (
+                        {!isPurchasable(stone) ? (
+                          <>{stone.status}</>
+                        ) : isJustAdded ? (
                           <>
                             <Check className="w-3.5 h-3.5" /> Added
                           </>

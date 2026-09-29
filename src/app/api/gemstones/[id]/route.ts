@@ -1,27 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '../../../../../backend/data/db';
+import { NextRequest } from 'next/server';
+import { publicStones } from '@backend/lib/commerce';
+import { handle, ok, HttpError } from '@backend/lib/http';
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const stones = db.getGemstones();
-    const stone = stones.find((s) => s.id === id);
+export const dynamic = 'force-dynamic';
 
-    if (!stone) {
-      return NextResponse.json(
-        { success: false, error: `Gemstone '${id}' not found.` },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ success: true, data: stone });
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: 'Failed to retrieve gemstone.' },
-      { status: 500 }
-    );
-  }
-}
+export const GET = handle(async (_req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
+  const { id } = await params;
+  const stone = publicStones().find((s) => s.id === id);
+  if (!stone) throw new HttpError(404, 'Gemstone not found.');
+  return ok({ data: stone });
+});

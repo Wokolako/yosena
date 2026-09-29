@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { GEMSTONES_CATALOG } from './data/gemstones';
-import { Gemstone, CartItem, PageView, PolicyType, BookingAppointment } from './types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Gemstone, PageView, PolicyType, isPurchasable } from './types';
 import { useAuth } from './context/AuthContext';
+import { useSiteData } from './context/SiteDataContext';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
 import { DiamondsShowcase } from './components/DiamondsShowcase';
@@ -17,105 +17,129 @@ import { AuthPage } from './components/AuthPage';
 import { BlogSection } from './components/BlogSection';
 import { JournalCarousel } from './components/JournalCarousel';
 import { StoryAndEthicsSection } from './components/StoryAndEthicsSection';
-import { CartDrawer } from './components/CartDrawer';
+import { CartDrawer, CheckoutReturn } from './components/CartDrawer';
 import { PolicyModal } from './components/PolicyModal';
 import { SiteGuideModal } from './components/SiteGuideModal';
 import { Footer } from './components/Footer';
 import { ChatWidget } from './components/ChatWidget';
 
-import { AdminDashboard } from './components/AdminDashboard';
+const CART_KEY = 'yosenamora_cart';
+const SAVED_KEY = 'yosenamora_vault';
+
+function readStoredIds(key: string): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    // Older carts stored whole stone objects; keep only the ids (prices always come from the server).
+    return Array.from(
+      new Set(parsed.map((x: any) => (typeof x === 'string' ? x : x?.gemstone?.id ?? x?.id)).filter((x: unknown) => typeof x === 'string'))
+    );
+  } catch {
+    return [];
+  }
+}
+
+function storeIds(key: string, ids: string[]) {
+  try {
+    if (ids.length) localStorage.setItem(key, JSON.stringify(ids));
+    else localStorage.removeItem(key);
+  } catch {
+    // Ignore in restricted environments
+  }
+}
 
 export default function App() {
-  const { user, isRestoring } = useAuth();
+  const { user, isRestoring, updateProfile } = useAuth();
+  const { stones } = useSiteData();
   const [currentPage, setCurrentPage] = useState<PageView>('home');
   const [selectedGemstone, setSelectedGemstone] = useState<Gemstone | null>(null);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [savedStoneIds, setSavedStoneIds] = useState<string[]>(['dia-1001', 'sap-2001']);
+  const [cartIds, setCartIds] = useState<string[]>([]);
+  const [guestSavedIds, setGuestSavedIds] = useState<string[]>([]);
   const [activePolicy, setActivePolicy] = useState<PolicyType | null>(null);
   const [isSiteGuideOpen, setIsSiteGuideOpen] = useState<boolean>(false);
+  const [checkoutReturn, setCheckoutReturn] = useState<CheckoutReturn | null>(null);
 
-  // Check hash for stone deep links e.g. #stone=dia-1001 or #admin
+  // Stone deep links, e.g. #stone=dia-1001 (used by the concierge).
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-      if (hash === '#admin') {
-        setCurrentPage('admin');
-      } else if (hash.includes('stone=')) {
+      if (hash.includes('stone=')) {
         const stoneId = hash.split('stone=')[1]?.split('&')[0];
-        const found = GEMSTONES_CATALOG.find((s) => s.id === stoneId);
-        if (found) {
-          setSelectedGemstone(found);
-        }
+        const found = stones.find((s) => s.id === stoneId);
+        if (found) setSelectedGemstone(found);
       }
     };
-
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+  }, [stones]);
 
-  // Load / save cart from localStorage
+  // Restore the cart and guest bookmarks; pick up a return from the payment page or an order link.
   useEffect(() => {
-    try {
-      const savedCart = localStorage.getItem('yosenamora_cart');
-      if (savedCart) {
-        setCartItems(JSON.parse(savedCart));
-      }
-      const savedVault = localStorage.getItem('yosenamora_vault');
-      if (savedVault) {
-        setSavedStoneIds(JSON.parse(savedVault));
-      }
-    } catch (e) {
-      // Ignore in iframe restricted environments
+    setCartIds(readStoredIds(CART_KEY));
+    setGuestSavedIds(readStoredIds(SAVED_KEY));
+
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get('order');
+    const token = params.get('t');
+    if (reference && token) {
+      const state = params.get('checkout');
+      setCheckoutReturn({
+        reference,
+        token,
+        outcome: state === 'success' ? 'success' : state === 'cancelled' ? 'cancelled' : 'view',
+      });
+      setIsCartOpen(true);
+      // Remove the private order link from the address bar.
+      window.history.replaceState(null, '', window.location.pathname + window.location.hash);
     }
   }, []);
 
+  // A member's bookmarks live on their account; carry over anything saved before signing in.
+  useEffect(() => {
+    if (!user || guestSavedIds.length === 0) return;
+    const merged = Array.from(new Set([...(user.savedStoneIds || []), ...guestSavedIds]));
+    setGuestSavedIds([]);
+    storeIds(SAVED_KEY, []);
+    if (merged.length !== (user.savedStoneIds || []).length) void updateProfile({ savedStoneIds: merged });
+  }, [user, guestSavedIds, updateProfile]);
+
+  const savedStoneIds = user ? user.savedStoneIds || [] : guestSavedIds;
+
   const handleAddToCart = (stone: Gemstone) => {
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.gemstone.id === stone.id);
-      let updated: CartItem[];
-      if (existing) {
-        updated = prev.map((item) =>
-          item.gemstone.id === stone.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      } else {
-        updated = [...prev, { gemstone: stone, quantity: 1, addedAt: new Date().toISOString() }];
-      }
-      try {
-        localStorage.setItem('yosenamora_cart', JSON.stringify(updated));
-      } catch (e) {}
+    if (!isPurchasable(stone)) return;
+    setCartIds((prev) => {
+      if (prev.includes(stone.id)) return prev; // each stone is one of a kind
+      const updated = [...prev, stone.id];
+      storeIds(CART_KEY, updated);
       return updated;
     });
   };
 
   const handleRemoveFromCart = (stoneId: string) => {
-    setCartItems((prev) => {
-      const updated = prev.filter((item) => item.gemstone.id !== stoneId);
-      try {
-        localStorage.setItem('yosenamora_cart', JSON.stringify(updated));
-      } catch (e) {}
+    setCartIds((prev) => {
+      const updated = prev.filter((id) => id !== stoneId);
+      storeIds(CART_KEY, updated);
       return updated;
     });
   };
 
-  const handleClearCart = () => {
-    setCartItems([]);
-    try {
-      localStorage.removeItem('yosenamora_cart');
-    } catch (e) {}
-  };
+  const handleClearCart = useCallback(() => {
+    setCartIds([]);
+    storeIds(CART_KEY, []);
+  }, []);
 
   const handleToggleSaveStone = (stoneId: string) => {
-    setSavedStoneIds((prev) => {
-      const updated = prev.includes(stoneId)
-        ? prev.filter((id) => id !== stoneId)
-        : [...prev, stoneId];
-      try {
-        localStorage.setItem('yosenamora_vault', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    const next = savedStoneIds.includes(stoneId)
+      ? savedStoneIds.filter((id) => id !== stoneId)
+      : [...savedStoneIds, stoneId];
+    if (user) {
+      void updateProfile({ savedStoneIds: next });
+    } else {
+      setGuestSavedIds(next);
+      storeIds(SAVED_KEY, next);
+    }
   };
 
   // Any in-page navigation also returns the viewer to the top — footer links in
@@ -125,16 +149,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const savedStonesList = GEMSTONES_CATALOG.filter((s) => savedStoneIds.includes(s.id));
+  const savedStonesList = stones.filter((s) => savedStoneIds.includes(s.id));
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#0F0E0D] text-[#1A1918] dark:text-[#F5F2ED] flex flex-col font-sans selection:bg-[#2C2A29] selection:text-[#FAF8F5] transition-colors duration-200">
-      
+
       {/* Top Navigation */}
       <Navbar
         currentPage={currentPage}
         setCurrentPage={setCurrentPage}
-        cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
+        cartCount={cartIds.length}
         openCart={() => setIsCartOpen(true)}
         openSiteGuide={() => setIsSiteGuideOpen(true)}
         openVault={() => handleNavigate(user ? 'vault' : 'signin')}
@@ -149,7 +173,7 @@ export default function App() {
 
             {/* Section 2 & 3: "yosenamora" & "All our diamonds, worth millions." & 3 Containers */}
             <DiamondsShowcase
-              diamonds={GEMSTONES_CATALOG}
+              diamonds={stones}
               onSelectStone={(stone) => setSelectedGemstone(stone)}
               onNavigate={handleNavigate}
             />
@@ -187,7 +211,7 @@ export default function App() {
 
         {currentPage === 'shop' && (
           <ShopCatalog
-            gemstones={GEMSTONES_CATALOG}
+            gemstones={stones}
             onSelectStone={(stone) => setSelectedGemstone(stone)}
             onAddToCart={handleAddToCart}
             savedStoneIds={savedStoneIds}
@@ -213,8 +237,6 @@ export default function App() {
               onNavigateShop={() => handleNavigate('shop')}
             />
           ) : (
-            // Session may still be restoring from a stored token — hold rather than
-            // flashing the sign-in form at a member who is already signed in.
             !isRestoring && <AuthPage mode="signin" onNavigate={handleNavigate} />
           )
         )}
@@ -234,13 +256,6 @@ export default function App() {
         {currentPage === 'story' && (
           <StoryAndEthicsSection />
         )}
-
-        {currentPage === 'admin' && (
-          <AdminDashboard
-            onNavigate={handleNavigate}
-            onSelectStone={(stone) => setSelectedGemstone(stone)}
-          />
-        )}
       </main>
 
       {/* Persistent Global Modals & Drawers */}
@@ -254,11 +269,16 @@ export default function App() {
 
       <CartDrawer
         isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        cartItems={cartItems}
+        onClose={() => {
+          setIsCartOpen(false);
+          setCheckoutReturn(null);
+        }}
+        cartIds={cartIds}
         onRemoveItem={handleRemoveFromCart}
         onClearCart={handleClearCart}
         onSelectStone={(stone) => setSelectedGemstone(stone)}
+        onNavigate={handleNavigate}
+        checkoutReturn={checkoutReturn}
       />
 
       <PolicyModal

@@ -7,6 +7,10 @@ coverage/
 .env*
 !.env.example
 
+# Runtime data store: customer records, password hashes, orders. Seed data lives in backend/seed/.
+backend/data/*.json
+backend/data/*.tmp
+
 # Next.js build output
 .next/
 out/

@@ -1,68 +1,107 @@
-import React, { useState } from 'react';
-import { CONSULTATION_SERVICES } from '../data/content';
-import { ConsultationService, BookingAppointment } from '../types';
-import { Clock, CheckCircle2, User, Building, Mail, Phone, ArrowRight, Shield } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useSiteData } from '../context/SiteDataContext';
+import { useAuth } from '../context/AuthContext';
+import { ConsultationService } from '../types';
+import { CONTACT_EMAIL } from '../lib/contact';
+import { Clock, CheckCircle2, User, Building, Mail, Phone, ArrowRight, Shield, Loader2, AlertCircle } from 'lucide-react';
 
-interface BookingSectionProps {
-  onBookingComplete?: (booking: BookingAppointment) => void;
+interface CalendarDay {
+  date: string;
+  display: string;
+  slots: { time: string; available: boolean }[];
 }
 
-export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplete }) => {
-  const [selectedService, setSelectedService] = useState<ConsultationService>(CONSULTATION_SERVICES[0]);
-  const [selectedDate, setSelectedDate] = useState<string>('2026-09-18');
-  const [selectedTime, setSelectedTime] = useState<string>('11:30 AM BST');
-  const [confirmedBooking, setConfirmedBooking] = useState<BookingAppointment | null>(null);
+interface BookingConfirmation {
+  referenceNumber: string;
+  serviceTitle: string;
+  date: string;
+  time: string;
+  clientName: string;
+  companyName: string;
+  email: string;
+  status: string;
+}
+
+export const BookingSection: React.FC = () => {
+  const { services: CONSULTATION_SERVICES } = useSiteData();
+  const { user } = useAuth();
+  const [selectedService, setSelectedService] = useState<ConsultationService | null>(CONSULTATION_SERVICES[0] ?? null);
+  const [calendar, setCalendar] = useState<CalendarDay[]>([]);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedTime, setSelectedTime] = useState<string>('');
+  const [confirmedBooking, setConfirmedBooking] = useState<BookingConfirmation | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
-    clientName: '',
-    companyName: '',
-    email: '',
-    phone: '',
+    clientName: user?.clientName ?? '',
+    companyName: user?.companyName ?? '',
+    email: user?.email ?? '',
+    phone: user?.phone ?? '',
     specificInquiry: '',
   });
 
-  const availableDates = [
-    { date: '2026-09-18', display: 'Fri, Sep 18' },
-    { date: '2026-09-21', display: 'Mon, Sep 21' },
-    { date: '2026-09-22', display: 'Tue, Sep 22' },
-    { date: '2026-09-23', display: 'Wed, Sep 23' },
-    { date: '2026-09-24', display: 'Thu, Sep 24' },
-    { date: '2026-09-25', display: 'Fri, Sep 25' },
-  ];
-
-  const availableTimes = [
-    '10:00 AM BST',
-    '11:30 AM BST',
-    '02:00 PM BST',
-    '03:30 PM BST',
-    '05:00 PM BST',
-  ];
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.clientName || !formData.email) return;
-
-    const refNum = `BK-${Math.floor(100000 + Math.random() * 900000)}`;
-    const appointment: BookingAppointment = {
-      id: `apt-${Date.now()}`,
-      serviceId: selectedService.id,
-      serviceTitle: selectedService.title,
-      date: selectedDate,
-      time: selectedTime,
-      clientName: formData.clientName,
-      companyName: formData.companyName || 'Independent Atelier',
-      email: formData.email,
-      phone: formData.phone || 'N/A',
-      specificInquiry: formData.specificInquiry,
-      status: 'Confirmed',
-      referenceNumber: refNum,
-    };
-
-    setConfirmedBooking(appointment);
-    if (onBookingComplete) {
-      onBookingComplete(appointment);
+  // Open dates and times come from the server, so booked or closed slots are never offered.
+  const loadCalendar = async () => {
+    try {
+      const res = await fetch('/api/bookings/slots', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error);
+      const days: CalendarDay[] = data.dates;
+      setCalendar(days);
+      setCalendarError(null);
+      const firstOpen = days.find((d) => d.slots.some((s) => s.available));
+      setSelectedDate((current) =>
+        days.some((d) => d.date === current && d.slots.some((s) => s.available)) ? current : firstOpen?.date ?? ''
+      );
+    } catch {
+      setCalendarError('The appointment calendar could not be loaded. Please try again shortly.');
     }
   };
+
+  useEffect(() => {
+    void loadCalendar();
+  }, []);
+
+  const availableDates = calendar.filter((d) => d.slots.some((s) => s.available));
+  const availableTimes = (calendar.find((d) => d.date === selectedDate)?.slots ?? [])
+    .filter((s) => s.available)
+    .map((s) => s.time);
+
+  // Keep the chosen time valid for the chosen date.
+  useEffect(() => {
+    if (!availableTimes.includes(selectedTime)) setSelectedTime(availableTimes[0] ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, calendar]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.clientName || !formData.email || !selectedService || !selectedDate || !selectedTime || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serviceId: selectedService.id, date: selectedDate, time: selectedTime, ...formData }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        setSubmitError(data?.error ?? 'Your request could not be sent. Please try again.');
+        if (res.status === 409 || res.status === 400) void loadCalendar();
+        return;
+      }
+      setConfirmedBooking(data.data);
+      void loadCalendar();
+    } catch {
+      setSubmitError('Could not reach the trade desk. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const displayDate = (date: string) => calendar.find((d) => d.date === date)?.display ?? date;
 
   return (
     <div className="py-12 lg:py-20 bg-[#FAF8F5] dark:bg-[#0F0E0D] transition-colors">
@@ -90,10 +129,10 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
 
             <div className="space-y-2">
               <span className="text-xs sm:text-sm uppercase tracking-[0.25em] text-[#8C827A] dark:text-[#A69C94] font-bold">
-                Appointment Confirmed
+                Request Received
               </span>
               <h2 className="font-serif text-3xl text-[#1A1918] dark:text-[#F5F2ED]">
-                We Look Forward to Welcoming You
+                Your Request Is With the Trade Desk
               </h2>
               <p className="text-xs sm:text-sm text-[#78716C] dark:text-[#A69C94]">
                 Official Reference: <span className="font-mono font-bold text-[#1A1918] dark:text-[#F5F2ED]">{confirmedBooking.referenceNumber}</span>
@@ -107,20 +146,20 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
               </div>
               <div className="flex justify-between py-1.5 border-b border-[#E8E1D9] dark:border-[#262320]">
                 <span className="text-[#8C827A] dark:text-[#A69C94] font-medium">Date &amp; Time:</span>
-                <span className="font-bold text-[#1A1918] dark:text-[#F5F2ED]">{confirmedBooking.date} at {confirmedBooking.time}</span>
+                <span className="font-bold text-[#1A1918] dark:text-[#F5F2ED]">{displayDate(confirmedBooking.date)} at {confirmedBooking.time} (UK time)</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-[#E8E1D9] dark:border-[#262320]">
                 <span className="text-[#8C827A] dark:text-[#A69C94] font-medium">Attendee:</span>
                 <span className="font-bold text-[#1A1918] dark:text-[#F5F2ED]">{confirmedBooking.clientName} ({confirmedBooking.companyName})</span>
               </div>
               <div className="flex justify-between py-1.5">
-                <span className="text-[#8C827A] dark:text-[#A69C94] font-medium">Confirmation Sent:</span>
+                <span className="text-[#8C827A] dark:text-[#A69C94] font-medium">Confirmation Will Go To:</span>
                 <span className="font-bold text-[#1A1918] dark:text-[#F5F2ED]">{confirmedBooking.email}</span>
               </div>
             </div>
 
             <div className="text-xs sm:text-sm text-[#78716C] dark:text-[#A69C94] font-light">
-              A private gemological specialist has been assigned to prepare your parcel requests. For immediate changes, reach our desk directly at <span className="text-[#1A1918] dark:text-[#F5F2ED] font-semibold">consult@yosenamora.com</span>.
+              The trade desk will confirm this slot by email, usually within one business day. For immediate changes, reach our desk directly at <span className="text-[#1A1918] dark:text-[#F5F2ED] font-semibold">{CONTACT_EMAIL}</span>.
             </div>
 
             <button
@@ -142,7 +181,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
 
               <div className="space-y-3">
                 {CONSULTATION_SERVICES.map((service) => {
-                  const isSelected = selectedService.id === service.id;
+                  const isSelected = selectedService?.id === service.id;
                   return (
                     <div
                       key={service.id}
@@ -196,9 +235,17 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
               {/* Date selection grid */}
               <div className="bg-[#FFFFFF] dark:bg-[#181614] p-5 rounded-lg border border-[#E8E1D9] dark:border-[#262320] space-y-4">
                 <span className="text-xs sm:text-sm uppercase tracking-wider text-[#8C827A] dark:text-[#A69C94] block font-bold">
-                  Available Dates (Next 14 Days)
+                  Available Dates
                 </span>
                 
+                {calendarError && (
+                  <p className="text-xs text-[#8C4632] dark:text-[#D9846C] font-semibold">{calendarError}</p>
+                )}
+                {!calendarError && calendar.length > 0 && availableDates.length === 0 && (
+                  <p className="text-xs text-[#78716C] dark:text-[#A69C94]">
+                    All slots are taken for now. Please contact {CONTACT_EMAIL}.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   {availableDates.map((item) => (
                     <button
@@ -222,7 +269,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
                 {/* Timeslots */}
                 <div className="pt-4 border-t border-[#F2ECE4] dark:border-[#262320] space-y-2">
                   <span className="text-xs sm:text-sm uppercase tracking-wider text-[#8C827A] dark:text-[#A69C94] block font-bold">
-                    Select Convenient Time Slot
+                    Select Convenient Time Slot (UK time)
                   </span>
                   <div className="grid grid-cols-1 gap-2">
                     {availableTimes.map((time) => (
@@ -339,11 +386,19 @@ export const BookingSection: React.FC<BookingSectionProps> = ({ onBookingComplet
                   />
                 </div>
 
+                {submitError && (
+                  <div role="alert" className="flex items-start gap-2 text-xs text-[#8C4632] dark:text-[#D9846C] font-semibold">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> <span>{submitError}</span>
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  disabled={submitting || !selectedService || !selectedDate || !selectedTime}
+                  className="w-full py-3.5 bg-[#1A1918] dark:bg-[#F5F2ED] text-[#FAF8F5] dark:text-[#1A1918] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <span>Confirm Appointment</span>
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  <span>Request Appointment</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>

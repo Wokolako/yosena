@@ -1,32 +1,45 @@
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'yosenamora_vault_secret_key_2026_jwt_token';
-const JWT_EXPIRES_IN = '7d';
+/*
+ * Session tokens carry only the user id. Role and account status are always read
+ * from the data store, so a demoted or disabled account loses access immediately.
+ */
 
-export interface TokenPayload {
-  userId: string;
-  email: string;
-  memberId: string;
-  accountRole: 'trade_partner' | 'admin' | 'jeweller';
-  companyName: string;
+export interface SessionPayload {
+  sub: string;
 }
 
-export function generateToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+function secret(): string {
+  const configured = process.env.JWT_SECRET;
+  if (configured) {
+    if (configured.length < 32) throw new Error('JWT_SECRET must be at least 32 characters long.');
+    return configured;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is not set. Refusing to sign or verify sessions without it.');
+  }
+  // Development only: a random per-process secret (sessions reset on restart). Never a fixed value.
+  const g = globalThis as any;
+  if (!g.__ymDevJwtSecret) {
+    g.__ymDevJwtSecret = crypto.randomBytes(48).toString('hex');
+    console.warn('[auth] JWT_SECRET is not set; using a temporary development secret. Set JWT_SECRET in .env.local.');
+  }
+  return g.__ymDevJwtSecret;
 }
 
-export function verifyToken(token: string): TokenPayload | null {
+export function signSession(userId: string, ttlSeconds: number): string {
+  return jwt.sign({ sub: userId } satisfies SessionPayload, secret(), {
+    expiresIn: ttlSeconds,
+    algorithm: 'HS256',
+  });
+}
+
+export function verifySession(token: string): SessionPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
-    return decoded;
-  } catch (err) {
+    const decoded = jwt.verify(token, secret(), { algorithms: ['HS256'] }) as SessionPayload;
+    return typeof decoded?.sub === 'string' ? decoded : null;
+  } catch {
     return null;
   }
-}
-
-export function extractBearerToken(authHeader?: string): string | null {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-  return authHeader.substring(7).trim();
 }

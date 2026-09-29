@@ -1,21 +1,20 @@
-import { GEMSTONES_CATALOG } from '../data/gemstones';
-import { CONSULTATION_SERVICES, BLOG_POSTS, POLICY_CONTENTS } from '../data/content';
+import { loadSiteData } from '../../backend/lib/siteData';
+import { WHATSAPP_NUMBER, WHATSAPP_URL, CONTACT_EMAIL } from './contact';
 
-/** Public inquiry channel offered whenever the assistant cannot answer from site data. */
-export const WHATSAPP_NUMBER = '+265993287979';
-export const WHATSAPP_URL = 'https://wa.me/265993287979';
-export const CONTACT_EMAIL = 'consult@yosenamora.com';
+// Server-only: reads the live data store. Browser code imports ./contact instead.
 
 const usd = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 /**
  * Renders the live site data as plain text for the model to answer from.
- * Built from the same modules the pages render, so the assistant can never
- * drift from what a visitor actually sees in the catalog.
+ * Built from the same data store the pages render, so the assistant always quotes
+ * the current catalog, prices and availability — including admin edits.
  */
 export function buildSiteKnowledge(): string {
-  const inventory = GEMSTONES_CATALOG.map((g) =>
+  const { stones, services, posts, policies } = loadSiteData();
+
+  const inventory = stones.map((g) =>
     [
       `- ${g.name} (id: ${g.id}, link: #stone=${g.id})`,
       `  category: ${g.category} | shape: ${g.shape} | carat: ${g.carat}`,
@@ -28,7 +27,7 @@ export function buildSiteKnowledge(): string {
     ].join('\n')
   ).join('\n\n');
 
-  const services = CONSULTATION_SERVICES.map((s) =>
+  const serviceText = services.map((s) =>
     [
       `- ${s.title}`,
       `  format: ${s.type} | duration: ${s.duration} | fee: ${s.fee}`,
@@ -37,11 +36,11 @@ export function buildSiteKnowledge(): string {
     ].join('\n')
   ).join('\n\n');
 
-  const journal = BLOG_POSTS.map((p) =>
+  const journal = posts.map((p) =>
     `- "${p.title}" (${p.category}, ${p.readTime}, ${p.date}) by ${p.author}, ${p.authorRole}. ${p.excerpt}`
   ).join('\n');
 
-  const policies = Object.values(POLICY_CONTENTS)
+  const policyText = Object.values(policies)
     .map((p) => {
       const sections = p.sections.map((s) => `    ${s.heading}: ${s.text}`).join('\n');
       return `- ${p.title} — ${p.subtitle}\n${sections}`;
@@ -49,26 +48,26 @@ export function buildSiteKnowledge(): string {
     .join('\n\n');
 
   return `
-=== CURRENT VAULT INVENTORY (${GEMSTONES_CATALOG.length} stones — this is the COMPLETE list) ===
+=== CURRENT VAULT INVENTORY (${stones.length} stones — this is the COMPLETE list) ===
 ${inventory}
 
 === CONSULTATION SERVICES (bookable on the Consultations page) ===
-${services}
+${serviceText}
 
 === JOURNAL / THE YOSENAMORA GAZETTE ===
 ${journal}
 
 === POLICIES ===
-${policies}
+${policyText}
 
 === SITE NAVIGATION ===
 - Home — brand introduction, featured stones, quality promise, Gazette story carousel
 - Gemstones — full searchable catalog with filters by category, shape, carat and price
-- Consultations — book a 1:1 private appointment
+- Consultations — request a 1:1 private appointment (the desk confirms each request)
 - Wholesale — instant B2B parcel quote calculator
 - Journal (footer link) — The YosenaMora Gazette, full article archive
 - Our Story & Ethics (footer link) — provenance, sourcing charter, company background
-- Member Portal (YM avatar, top right) — saved stones and memo tracking for trade members
+- Member Portal (YM avatar, top right) — saved stones, orders and memo tracking for trade members
 
 === CONTACT ===
 - Trade desk email: ${CONTACT_EMAIL}
@@ -89,7 +88,8 @@ GROUNDING RULES — these are absolute:
 3. The inventory list is exhaustive. If a visitor asks for a stone type, size, colour or budget that is not in it, say plainly that it is not in the current vault listing — then hand off (see HANDOFF).
 4. Quote prices and specifications exactly as given. Never estimate, round or extrapolate a price.
 5. Do not negotiate, discount, reserve stock, confirm an order, or promise a delivery date. Those are desk decisions.
-6. PRODUCT LINKS: Whenever you mention, compare, or list a specific gemstone or diamond from the vault, ALWAYS format its name as a markdown link using its product page anchor: \`[Stone Name](#stone=id)\`. For example: \`[14.28ct Type IIa D Flawless Emerald Cut Diamond](#stone=dia-1001)\`. This allows the user to click directly on the product name to open its detailed dossier page.
+6. Only stones with availability "In Vault" can be ordered. Describe Reserved, On Memo or Sold stones as unavailable.
+7. PRODUCT LINKS: Whenever you mention, compare, or list a specific gemstone or diamond from the vault, ALWAYS format its name as a markdown link using its product page anchor: \`[Stone Name](#stone=id)\`. For example: \`[14.28ct Type IIa D Flawless Emerald Cut Diamond](#stone=dia-1001)\`. This allows the user to click directly on the product name to open its detailed dossier page.
 
 HANDOFF — when to point the visitor to a human:
 Trigger a handoff when any of these is true:

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BLOG_POSTS } from '../data/content';
+import { useSiteData } from '../context/SiteDataContext';
 import { BlogPost, PageView } from '../types';
 import { ArticleReaderModal } from './ArticleReaderModal';
 import { Clock, Calendar, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -20,6 +20,7 @@ const AUTOPLAY_MS = 6000;
  * is hovered or focused, and for viewers who prefer reduced motion.
  */
 export const JournalCarousel: React.FC<JournalCarouselProps> = ({ onNavigate }) => {
+  const { posts: BLOG_POSTS } = useSiteData();
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
   const [perView, setPerView] = useState(1);
@@ -58,6 +59,9 @@ export const JournalCarousel: React.FC<JournalCarouselProps> = ({ onNavigate }) 
 
   const goPrev = () => setActiveIndex((i) => (i <= 0 ? maxIndex : i - 1));
   const goNext = () => setActiveIndex((i) => (i >= maxIndex ? 0 : i + 1));
+
+  // Nothing published yet (every article may be a draft).
+  if (total === 0) return null;
 
   return (
     <section

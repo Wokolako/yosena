@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { POLICY_CONTENTS } from '../data/content';
+import { useSiteData } from '../context/SiteDataContext';
 import { PolicyType } from '../types';
 import { X, FileText, Mail } from 'lucide-react';
 
@@ -9,6 +9,7 @@ interface PolicyModalProps {
 }
 
 export const PolicyModal: React.FC<PolicyModalProps> = ({ policyType, onClose }) => {
+  const { policies: POLICY_CONTENTS } = useSiteData();
   // Close on Escape and lock background scroll while the policy is open.
   useEffect(() => {
     if (!policyType) return;

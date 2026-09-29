@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '../context/ThemeContext';
 import { AuthProvider } from '../context/AuthContext';
+import { getSessionUser, toPublicUser } from '@backend/auth/session';
 
 export const metadata: Metadata = {
   title: 'YosenaMora | Gemstones & Diamonds',
@@ -13,11 +14,15 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Read on the server from the httpOnly session cookie, so the page never flashes a signed-out state.
+  const sessionUser = await getSessionUser();
+  const initialUser = sessionUser ? toPublicUser(sessionUser) : null;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -44,7 +49,7 @@ export default function RootLayout({
       </head>
       <body className="bg-[#FAF8F5] dark:bg-[#0F0E0D] text-[#1A1918] dark:text-[#F5F2ED] antialiased selection:bg-[#2C2A29] selection:text-[#FAF8F5] transition-colors duration-200">
         <ThemeProvider>
-          <AuthProvider>
+          <AuthProvider initialUser={initialUser}>
             {children}
           </AuthProvider>
         </ThemeProvider>

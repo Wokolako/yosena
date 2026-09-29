@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { BLOG_POSTS } from '../data/content';
+import { useSiteData } from '../context/SiteDataContext';
 import { BlogPost } from '../types';
 import { ArticleReaderModal } from './ArticleReaderModal';
 import { Clock, Calendar, ArrowRight } from 'lucide-react';
 
 export const BlogSection: React.FC = () => {
+  const { posts: BLOG_POSTS } = useSiteData();
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>('All');
 

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { buildSiteKnowledge, SYSTEM_PROMPT } from '../../../lib/siteKnowledge';
-import fs from 'fs';
-import path from 'path';
+import { db } from '@backend/store/db';
+import { newId } from '@backend/lib/ids';
+import { rateLimit } from '@backend/lib/rateLimit';
+import { clientIp, HttpError } from '@backend/lib/http';
 
 // The concierge reads live site data at request time, so never cache this route.
 export const dynamic = 'force-dynamic';
@@ -19,53 +21,27 @@ interface IncomingMessage {
   text: string;
 }
 
-interface ChatLogEntry {
-  id: string;
-  timestamp: string;
-  userMessage: string;
-  botReply: string;
-  handoff: boolean;
-}
-
-let memoryLogs: ChatLogEntry[] = [];
-
+/** Stored for the trade desk; admins read these at /api/admin/chat-logs. */
 function logChatInteraction(userMessage: string, botReply: string, handoff: boolean) {
-  const entry: ChatLogEntry = {
-    id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-    timestamp: new Date().toISOString(),
-    userMessage,
-    botReply,
-    handoff,
-  };
-
-  memoryLogs.unshift(entry);
-  if (memoryLogs.length > 200) memoryLogs = memoryLogs.slice(0, 200);
-
   try {
-    const logsDir = path.join(process.cwd(), 'backend', 'data');
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-    const filePath = path.join(logsDir, 'chat_logs.json');
-    let existing: ChatLogEntry[] = [];
-    if (fs.existsSync(filePath)) {
-      try {
-        existing = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      } catch (e) { }
-    }
-    existing.unshift(entry);
-    if (existing.length > 500) existing = existing.slice(0, 500);
-    fs.writeFileSync(filePath, JSON.stringify(existing, null, 2), 'utf-8');
+    db.transaction((tx) => {
+      const logs = tx.get('chat_logs');
+      logs.unshift({ id: newId('log'), timestamp: new Date().toISOString(), userMessage, botReply, handoff });
+      tx.set('chat_logs', logs.slice(0, 500));
+    });
   } catch (e) {
     console.error('[concierge log error]', e);
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ success: true, count: memoryLogs.length, logs: memoryLogs });
-}
-
 export async function POST(req: NextRequest) {
+  try {
+    rateLimit(`chat:ip:${clientIp(req)}`, 20, 5 * 60_000);
+  } catch (err) {
+    const message = err instanceof HttpError ? err.message : 'Too many requests.';
+    return NextResponse.json({ success: false, error: message }, { status: 429 });
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {

@@ -117,14 +117,6 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenPolicy }) => {
                   Jeweller Member Portal
                 </button>
               </li>
-              <li>
-                <button
-                  onClick={() => onNavigate('admin')}
-                  className="hover:text-[#1A1918] dark:hover:text-[#FAF8F5] transition-colors cursor-pointer font-bold text-[#8C6D44] dark:text-[#C5A880]"
-                >
-                  Trade Desk Admin Center
-                </button>
-              </li>
             </ul>
           </div>
 

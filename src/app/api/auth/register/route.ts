@@ -1,79 +1,61 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db, UserData } from '../../../../../backend/data/db';
-import { hashPassword } from '../../../../../backend/auth/password';
-import { generateToken } from '../../../../../backend/auth/jwt';
+import { NextRequest } from 'next/server';
+import { db, UserRecord } from '@backend/store/db';
+import { hashPassword } from '@backend/auth/password';
+import { startSession, toPublicUser } from '@backend/auth/session';
+import { handle, ok, readJson, assertSameOrigin, clientIp, HttpError } from '@backend/lib/http';
+import { rateLimit } from '@backend/lib/rateLimit';
+import { newId, newReference } from '@backend/lib/ids';
+import * as v from '@backend/lib/validate';
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { email, password, clientName, companyName, phone, address } = body;
+export const POST = handle(async (req: NextRequest) => {
+  assertSameOrigin(req);
+  rateLimit(`register:ip:${clientIp(req)}`, 5, 60 * 60_000);
+  const body = await readJson(req, 8_000);
 
-    if (!email || !password || !clientName || !companyName) {
-      return NextResponse.json(
-        { success: false, error: 'Email, password, client name, and company name are required.' },
-        { status: 400 }
-      );
+  const email = v.email(body.email);
+  const password = v.password(body.password);
+  const clientName = v.str(body.clientName, 'Your name', { required: true, max: 120 });
+  const companyName = v.str(body.companyName, 'Company name', { required: true, max: 160 });
+  const phone = v.str(body.phone, 'Phone', { max: 40 });
+  const address = v.str(body.address, 'Address', { max: 300 });
+
+  const passwordHash = await hashPassword(password);
+
+  // New accounts wait for the trade desk: no trade status and no memo credit until an admin approves them.
+  const user: UserRecord = {
+    id: newId('usr'),
+    email,
+    passwordHash,
+    clientName,
+    companyName,
+    memberId: newReference('YM'),
+    accountRole: 'trade_partner',
+    status: 'pending',
+    tier: 'Pending verification',
+    creditLineUSD: 0,
+    phone,
+    address,
+    isVerifiedTrade: false,
+    createdAt: new Date().toISOString(),
+    savedStoneIds: [],
+    preferences: { notifyDrops: true, notifyMemos: true },
+  };
+
+  db.transaction((tx) => {
+    const users = tx.get('users');
+    if (users.some((u) => u.email.toLowerCase() === email)) {
+      throw new HttpError(409, 'An account with this email address already exists. Try signing in.');
     }
+    users.push(user);
+    tx.set('users', users);
+  });
 
-    const users = db.getUsers();
-    const existing = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (existing) {
-      return NextResponse.json(
-        { success: false, error: 'An account with this email address already exists.' },
-        { status: 409 }
-      );
-    }
-
-    const hashedPassword = await hashPassword(password);
-    const generatedMemberId = `YM-TRADE-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const newUser: UserData = {
-      id: `usr-${Date.now()}`,
-      email: email.trim().toLowerCase(),
-      passwordHash: hashedPassword,
-      clientName: clientName.trim(),
-      companyName: companyName.trim(),
-      memberId: generatedMemberId,
-      accountRole: 'trade_partner',
-      tier: 'Registered Trade Partner',
-      creditLineUSD: 250000,
-      phone: phone || '',
-      address: address || '',
-      isVerifiedTrade: true,
-      createdAt: new Date().toISOString(),
-      savedStoneIds: [],
-      preferences: {
-        notifyDrops: true,
-        notifyMemos: true
-      }
-    };
-
-    users.push(newUser);
-    db.saveUsers(users);
-
-    const token = generateToken({
-      userId: newUser.id,
-      email: newUser.email,
-      memberId: newUser.memberId,
-      accountRole: newUser.accountRole,
-      companyName: newUser.companyName
-    });
-
-    const { passwordHash: _, ...safeUser } = newUser;
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: 'Trade partner registration approved.',
-        token,
-        user: safeUser
-      },
-      { status: 201 }
-    );
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: 'Registration failed.', details: err?.message },
-      { status: 500 }
-    );
-  }
-}
+  await startSession(user);
+  return ok(
+    {
+      message: 'Registration received. Our trade desk will verify your business before trade features are enabled.',
+      user: toPublicUser(user),
+    },
+    201
+  );
+});

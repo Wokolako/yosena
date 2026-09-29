@@ -1,36 +1,60 @@
 import React, { useState } from 'react';
 import { GemCategory } from '../types';
-import { Calculator, Check, ArrowRight, Shield } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { estimateQuote, ClarityTier } from '../lib/quotePricing';
+import { CONTACT_EMAIL } from '../lib/contact';
+import { Calculator, Check, ArrowRight, Shield, Loader2 } from 'lucide-react';
 
 export const WholesaleQuoteCalculator: React.FC = () => {
   const [gemType, setGemType] = useState<GemCategory>('Diamond');
   const [shape, setShape] = useState<string>('Emerald Cut');
   const [caratSize, setCaratSize] = useState<number>(3.5);
-  const [clarityTier, setClarityTier] = useState<'Investment Grade (FL/VVS)' | 'Commercial Fine (VS)' | 'Atelier Standard (SI1)'>('Investment Grade (FL/VVS)');
+  const [clarityTier, setClarityTier] = useState<ClarityTier>('Investment Grade (FL/VVS)');
   const [quantity, setQuantity] = useState<number>(1);
   const [originPreference, setOriginPreference] = useState<string>('Ethical Certified Co-op');
-  const [submitted, setSubmitted] = useState<boolean>(false);
+  const { user } = useAuth();
+  const [submittedRef, setSubmittedRef] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState<string>(user?.companyName ?? '');
+  const [contactEmail, setContactEmail] = useState<string>(user?.email ?? '');
+  const [notes, setNotes] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Dynamic estimate calculation based on gemstone parameters
-  const baseRatePerCarat: Record<GemCategory, number> = {
-    Diamond: 42000,
-    Sapphire: 12000,
-    Emerald: 24000,
-    Ruby: 65000,
-    Spinel: 14000,
-    Tourmaline: 38000,
-  };
+  // Same formula the server uses when it records the request.
+  const { perCarat: estimatedPerCarat, total: estimatedTotal } = estimateQuote({ gemType, caratSize, clarityTier, quantity });
 
-  const clarityMultiplier = 
-    clarityTier === 'Investment Grade (FL/VVS)' ? 1.45 :
-    clarityTier === 'Commercial Fine (VS)' ? 1.0 : 0.72;
-
-  const estimatedPerCarat = Math.round(baseRatePerCarat[gemType] * clarityMultiplier * (caratSize > 5 ? 1.6 : 1.0));
-  const estimatedTotal = Math.round(estimatedPerCarat * caratSize * quantity);
-
-  const handleQuoteSubmit = (e: React.FormEvent) => {
+  const handleQuoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch('/api/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gemType,
+          shape,
+          caratSize,
+          clarityTier,
+          quantity,
+          originPreference,
+          jewellerBusiness: businessName,
+          contactEmail,
+          notes,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        setSubmitError(data?.error ?? 'Your request could not be sent. Please try again.');
+        return;
+      }
+      setSubmittedRef(data.data.id);
+    } catch {
+      setSubmitError('Could not reach the trade desk. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -215,27 +239,53 @@ export const WholesaleQuoteCalculator: React.FC = () => {
               </p>
             </div>
 
-            {submitted ? (
+            {submittedRef ? (
               <div className="p-4 bg-[#1E3A20] border border-[#2E7D32] rounded-lg text-xs sm:text-sm space-y-1 text-[#E8F5E9]">
                 <div className="flex items-center gap-1.5 font-bold text-sm">
-                  <Check className="w-4 h-4 text-[#81C784]" /> Allocation Dossier Initiated
+                  <Check className="w-4 h-4 text-[#81C784]" /> Request {submittedRef} Received
                 </div>
                 <p className="text-xs text-[#C8E6C9] font-light">
-                  Our gemological desk has registered your specs. A senior specialist will follow up from <span className="underline font-semibold">consult@yosenamora.com</span> within 4 hours.
+                  Our gemological desk has your specifications. A specialist will reply from <span className="underline font-semibold">{CONTACT_EMAIL}</span>.
                 </p>
               </div>
             ) : (
               <form onSubmit={handleQuoteSubmit} className="space-y-3">
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="Enter your jeweller atelier email..."
+                  maxLength={160}
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  placeholder="Atelier / business name"
+                  aria-label="Atelier or business name"
                   className="w-full bg-[#242321] border border-[#3E3B38] rounded px-4 py-3 text-xs sm:text-sm text-[#FAF8F5] placeholder-[#8C827A] focus:outline-none focus:border-[#C5A880]"
                 />
+                <input
+                  type="email"
+                  required
+                  maxLength={254}
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  placeholder="Enter your jeweller atelier email..."
+                  aria-label="Business email"
+                  className="w-full bg-[#242321] border border-[#3E3B38] rounded px-4 py-3 text-xs sm:text-sm text-[#FAF8F5] placeholder-[#8C827A] focus:outline-none focus:border-[#C5A880]"
+                />
+                <textarea
+                  rows={2}
+                  maxLength={2000}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Anything else the desk should know (optional)"
+                  aria-label="Notes"
+                  className="w-full bg-[#242321] border border-[#3E3B38] rounded px-4 py-3 text-xs sm:text-sm text-[#FAF8F5] placeholder-[#8C827A] focus:outline-none focus:border-[#C5A880]"
+                />
+                {submitError && <p role="alert" className="text-xs text-[#F2B8A8] font-semibold">{submitError}</p>}
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-[#FAF8F5] text-[#141413] hover:bg-[#E2DDD6] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                  disabled={submitting}
+                  className="w-full py-3.5 bg-[#FAF8F5] text-[#141413] hover:bg-[#E2DDD6] rounded text-xs sm:text-sm uppercase tracking-[0.2em] font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-60"
                 >
+                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>Request Formal Memo Dossier</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>

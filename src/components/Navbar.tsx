@@ -3,12 +3,13 @@ import { PageView } from '../types';
 import { ThemeToggle } from './ThemeToggle';
 import { useAuth } from '../context/AuthContext';
 import { 
-  ShoppingBag, 
-  User, 
+  ShoppingBag,
+  User,
   Info,
   LogOut,
   Menu,
-  X
+  X,
+  ShieldCheck
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -30,6 +31,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const { user, signOut } = useAuth();
+  // Only a convenience link: the /admin page and API check the role on the server.
+  const isAdmin = user?.accountRole === 'admin';
 
   // Initials for the member avatar; the wordmark monogram stands in when signed out.
   const initials = user
@@ -157,6 +160,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
+            {isAdmin && (
+              <a
+                href="/admin"
+                id="admin-console-link"
+                title="Open the admin console"
+                className="hidden md:flex px-3 py-2 text-xs font-bold tracking-wider uppercase border border-[#C5A880] rounded text-[#8C6D44] dark:text-[#C5A880] hover:bg-[#F2ECE4] dark:hover:bg-[#23201D] transition-colors items-center gap-1.5"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Admin</span>
+              </a>
+            )}
+
             {/* Sign Out — only meaningful with a live session */}
             {user && (
               <button
@@ -218,6 +233,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               {link.label}
             </button>
           ))}
+          {isAdmin && (
+            <a
+              href="/admin"
+              className="block w-full text-left px-3.5 py-3 text-sm font-semibold uppercase tracking-wider rounded-md text-[#8C6D44] dark:text-[#C5A880] hover:bg-[#F7F3EE] dark:hover:bg-[#1D1B18] transition-colors flex items-center gap-2"
+            >
+              <ShieldCheck className="w-4 h-4" /> Admin Console
+            </a>
+          )}
           {user && (
             <button
               onClick={() => {

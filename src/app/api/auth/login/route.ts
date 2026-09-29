@@ -1,58 +1,35 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '../../../../../backend/data/db';
-import { comparePassword } from '../../../../../backend/auth/password';
-import { generateToken } from '../../../../../backend/auth/jwt';
+import { NextRequest } from 'next/server';
+import { db } from '@backend/store/db';
+import { comparePassword } from '@backend/auth/password';
+import { startSession, toPublicUser, accountStatus } from '@backend/auth/session';
+import { handle, ok, readJson, assertSameOrigin, clientIp, HttpError } from '@backend/lib/http';
+import { rateLimit } from '@backend/lib/rateLimit';
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { email, password } = body;
+export const POST = handle(async (req: NextRequest) => {
+  assertSameOrigin(req);
+  const body = await readJson(req, 8_000);
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  if (!email || !password) throw new HttpError(400, 'Email and password are required.');
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { success: false, error: 'Email and password are required.' },
-        { status: 400 }
-      );
-    }
+  rateLimit(`login:ip:${clientIp(req)}`, 20, 15 * 60_000);
+  rateLimit(`login:email:${email}`, 8, 15 * 60_000);
 
-    const users = db.getUsers();
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid credentials. No trade account found for this email.' },
-        { status: 401 }
-      );
-    }
-
-    const isMatch = await comparePassword(password, user.passwordHash);
-    if (!isMatch) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid email or password.' },
-        { status: 401 }
-      );
-    }
-
-    const token = generateToken({
-      userId: user.id,
-      email: user.email,
-      memberId: user.memberId,
-      accountRole: user.accountRole,
-      companyName: user.companyName
-    });
-
-    const { passwordHash: _, ...safeUser } = user;
-
-    return NextResponse.json({
-      success: true,
-      message: 'Authentication successful. Welcome to the YosenaMora Trade Vault.',
-      token,
-      user: safeUser
-    });
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: 'Authentication failed.', details: err?.message },
-      { status: 500 }
-    );
+  const user = db.all('users').find((u) => u.email.toLowerCase() === email);
+  // Always run a bcrypt comparison so unknown emails and wrong passwords look identical.
+  const matches = await comparePassword(password, user?.passwordHash);
+  if (!user || !matches) throw new HttpError(401, 'Invalid email or password.');
+  if (accountStatus(user) === 'disabled') {
+    throw new HttpError(403, 'This account has been disabled. Please contact the trade desk.');
   }
-}
+
+  db.transaction((tx) => {
+    const users = tx.get('users');
+    const record = users.find((u) => u.id === user.id);
+    if (record) record.lastLoginAt = new Date().toISOString();
+    tx.set('users', users);
+  });
+
+  await startSession(user);
+  return ok({ user: toPublicUser(user) });
+});

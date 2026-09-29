@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Gemstone } from '../types';
+import { Gemstone, isPurchasable } from '../types';
 import { 
   X, 
   ShoppingBag, 
@@ -49,7 +49,10 @@ export const GemstoneDetailModal: React.FC<GemstoneDetailModalProps> = ({
 
   if (!gemstone) return null;
 
+  const available = isPurchasable(gemstone);
+
   const handleAdd = () => {
+    if (!available) return;
     onAddToCart(gemstone);
     setAddedSuccess(true);
     setTimeout(() => setAddedSuccess(false), 2000);
@@ -210,13 +213,16 @@ export const GemstoneDetailModal: React.FC<GemstoneDetailModalProps> = ({
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={handleAdd}
-                    className={`py-3.5 px-4 rounded text-xs sm:text-sm uppercase tracking-[0.15em] font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    disabled={!available}
+                    className={`py-3.5 px-4 rounded text-xs sm:text-sm uppercase tracking-[0.15em] font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
                       addedSuccess
                         ? 'bg-[#2E7D32] text-white'
                         : 'bg-[#1A1918] dark:bg-[#F5F2ED] hover:bg-[#33312E] dark:hover:bg-[#E3DDD4] text-[#FAF8F5] dark:text-[#1A1918]'
                     }`}
                   >
-                    {addedSuccess ? (
+                    {!available ? (
+                      <>Not Available — {gemstone.status}</>
+                    ) : addedSuccess ? (
                       <>
                         <Check className="w-4 h-4" /> Added to Order
                       </>
